@@ -14,6 +14,8 @@ use unicorn_engine::{RegisterARM, Unicorn};
 use log::debug;
 use std::collections::HashSet;
 
+use super::FlagsCPSR;
+
 // Constant variable definitions
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;
@@ -312,11 +314,41 @@ impl<'a> Cpu<'a> {
             .mem_read(address, &mut original_instructions)
             .unwrap();
 
-        // Read registers
-        let mut registers: [u32; 17] = [0; 17];
-        ARM_REG.iter().enumerate().for_each(|(index, register)| {
-            registers[index] = self.emu.reg_read(*register).unwrap() as u32;
+        let record = TraceRecord::Fault {
+            address,
+            fault_type: fault.fault_type,
+        };
+        self.emu.get_data_mut().trace_data.push(record.clone());
+
+        // Push to fault data vector
+        self.emu.get_data_mut().fault_data.push(FaultData {
+            original_instructions,
+            record,
+            fault: *fault,
         });
+    }
+
+    /// Execute a bit flip
+    fn execute_bit_flip(&mut self, flag: FlagsCPSR, fault: &SimulationFaultRecord) {
+        let address = self.program_counter;
+        // Read registers
+        // let mut registers: [u32; 17] = [0; 17];
+        // ARM_REG.iter().enumerate().for_each(|(index, register)| {
+        //     registers[index] = self.emu.reg_read(*register).unwrap() as u32;
+        // });
+
+        let mut reg_val = self.emu.reg_read(RegisterARM::CPSR).unwrap();
+
+        reg_val ^= 1 << (flag as u32);
+
+        self.emu.reg_write(RegisterARM::CPSR, reg_val).expect("msg");
+
+        let mut original_instructions =  Vec::new();
+
+        self.emu
+            .mem_read(address, &mut original_instructions)
+            .unwrap();
+
         let record = TraceRecord::Fault {
             address,
             fault_type: fault.fault_type,
@@ -337,6 +369,9 @@ impl<'a> Cpu<'a> {
         match fault.fault_type {
             FaultType::Glitch(n) => {
                 self.execute_glitch(n, fault);
+            }
+            FaultType::BitFlip(flag ) => {
+                self.execute_bit_flip(flag, fault)
             }
         }
     }

@@ -95,7 +95,7 @@ fn main() -> Result<(), String> {
                 {
                     attack.double_glitch(args.max_instructions, args.low_complexity, 1..=9)?;
                 }
-                //            attack.single_bit_flip();
+                    attack.single_bit_flip(args.max_instructions, args.low_complexity)?;
             }
             "single" => {
                 attack.single_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
@@ -103,9 +103,9 @@ fn main() -> Result<(), String> {
             "double" => {
                 attack.double_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
             }
-            // "bit_flip" => {
-            //     attack.single_bit_flip();
-            // }
+            "bit_flip" => {
+                attack.single_bit_flip(args.max_instructions, args.low_complexity)?;
+            }
             _ => println!("No attack selected!"),
         }
     } else {
