@@ -2,7 +2,7 @@ mod cpu;
 pub use cpu::*;
 
 mod fault;
-pub use fault::{FaultData, FaultType, SimulationFaultRecord, TraceRecord};
+pub use fault::{FaultData, FaultType, FlagsCPSR, SimulationFaultRecord, TraceRecord};
 
 use log::info;
 

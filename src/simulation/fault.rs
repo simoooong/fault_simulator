@@ -1,11 +1,30 @@
+use std::usize;
+
 use clap::{builder::PossibleValue, ValueEnum};
 use std::hash::{Hash, Hasher};
+use strum::EnumIter;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Types of faults which can be simulated.
 pub enum FaultType {
     /// A fault which skips `n` consecutive instructions.
     Glitch(usize),
+    /// A fault which flips the FlagsCPSR bit of the CPSR register
+    BitFlip(FlagsCPSR)
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EnumIter)]
+pub enum FlagsCPSR {
+    /// Negative condition code flag
+    N = 31,
+    /// Zero condition code flag
+    Z = 30,
+    /// Greater than or Equal flags
+    GE3 = 19,
+    GE2 = 18,
+    GE1 = 17,
+    GE0 = 16,
 }
 
 impl ValueEnum for FaultType {
@@ -16,6 +35,13 @@ impl ValueEnum for FaultType {
             FaultType::Glitch(3),
             FaultType::Glitch(4),
             FaultType::Glitch(5),
+            
+            FaultType::BitFlip(FlagsCPSR::N),
+            FaultType::BitFlip(FlagsCPSR::Z),
+            FaultType::BitFlip(FlagsCPSR::GE3),
+            FaultType::BitFlip(FlagsCPSR::GE2),
+            FaultType::BitFlip(FlagsCPSR::GE1),
+            FaultType::BitFlip(FlagsCPSR::GE0),
         ]
     }
 
