@@ -1,10 +1,12 @@
 use crate::disassembly::Disassembly;
 pub use crate::simulation::FaultType;
+pub use crate::simulation::FlagsCPSR;
 use crate::simulation::*;
 
 use addr2line::gimli;
 
 use rayon::prelude::*;
+use strum::IntoEnumIterator;
 
 use std::sync::mpsc::{channel, Sender};
 
@@ -115,6 +117,19 @@ impl FaultAttacks {
             if !self.fault_data.is_empty() {
                 break;
             }
+        }
+
+        Ok((!self.fault_data.is_empty(), self.count_sum))
+    }
+
+    pub fn single_bit_flip(
+        &mut self,
+        cycles: usize,
+        low_complexity: bool
+    ) -> Result<(bool, usize), String> {
+        for flg in FlagsCPSR::iter() {
+            self.fault_data =
+                self.fault_simulation(cycles, &[FaultType::BitFlip(flg)], low_complexity)?;
         }
 
         Ok((!self.fault_data.is_empty(), self.count_sum))
