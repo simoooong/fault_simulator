@@ -1,6 +1,7 @@
 use crate::disassembly::Disassembly;
 pub use crate::simulation::FaultType;
 pub use crate::simulation::FlagsCPSR;
+pub use crate::simulation::FaultData;
 use crate::simulation::*;
 
 use addr2line::gimli;
@@ -133,6 +134,56 @@ impl FaultAttacks {
         }
 
         Ok((!self.fault_data.is_empty(), self.count_sum))
+    }
+
+    pub fn custom_faults(
+        &mut self,
+        cycles: usize,
+        low_complexity: bool,
+        args_input: &[String],
+    ) -> Result<(bool, usize), String> {
+        let args_sim: Vec<FaultType> = Vec::new();
+
+        self.fault_data = self.custom_faults_inner(cycles, low_complexity, args_input, args_sim)?;
+
+        Ok((!self.fault_data.is_empty(), self.count_sum))
+    }
+
+    fn custom_faults_inner(
+        &mut self,
+        cycles: usize,
+        low_complexity: bool,
+        args_input: &[String],
+        args_sim: Vec<FaultType>
+    ) -> Result<Vec<Vec<FaultData>>, String> {
+        if args_input.is_empty() {
+            self.fault_data =
+                self.fault_simulation(cycles, &args_sim, low_complexity)?;
+
+            return Ok(self.fault_data.clone());
+        }
+        
+        let (&ref fault, remaining_input) = args_input.split_first().unwrap();
+    
+        match fault.as_str() {
+            "Glitch" => {
+                for i in 1..10 {
+                    let mut data = args_sim.clone();
+                    data.push(FaultType::Glitch(i));
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                }
+            },
+            "Bitflip" => {
+                for flg in FlagsCPSR::iter() {
+                    let mut data = args_sim.clone();
+                    data.push(FaultType::BitFlip(flg));
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                }
+            },
+            _ => return Err("Invalid Fault Type".to_string()),
+        }
+
+        Ok(self.fault_data.clone())
     }
 
     pub fn fault_simulation(
