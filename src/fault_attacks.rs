@@ -166,8 +166,20 @@ impl FaultAttacks {
         let (&ref fault, remaining_input) = args_input.split_first().unwrap();
     
         match fault.as_str() {
+            "All" => {
+                for i in 1..11 {
+                    let mut data = args_sim.clone();
+                    data.push(FaultType::Glitch(i));
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                }
+                for flg in FlagsCPSR::iter() {
+                    let mut data = args_sim.clone();
+                    data.push(FaultType::BitFlip(flg));
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                }
+            }
             "Glitch" => {
-                for i in 1..10 {
+                for i in 1..11 {
                     let mut data = args_sim.clone();
                     data.push(FaultType::Glitch(i));
                     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
@@ -180,6 +192,71 @@ impl FaultAttacks {
                     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
                 }
             },
+            "Glitch1" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(1));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "Glitch2" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(2));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "Glitch3" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(3));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "Glitch4" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(4));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "Glitch5" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(5));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "Glitch6" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(6));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "Glitch7" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(7));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "Glitch8" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(9));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "Glitch9" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(9));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "Glitch10" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::Glitch(10));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+                
+            },
+            "BitflipZ" => {
+                let mut data = args_sim.clone();
+                data.push(FaultType::BitFlip(FlagsCPSR::Z));
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data)?;
+            }
             _ => return Err("Invalid Fault Type".to_string()),
         }
 
