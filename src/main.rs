@@ -100,7 +100,7 @@ fn main() -> Result<(), String> {
                         1..=10,
                     )?;
                 }
-                    attack.single_bit_flip(args.max_instructions, args.low_complexity)?;
+                    attack.single_bit_flip(args.max_instructions, args.deep_analysis, true)?;
             }
             "single" => {
                 attack.single_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?;
@@ -109,18 +109,12 @@ fn main() -> Result<(), String> {
                 attack.double_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?;
             }
             "bit_flip" => {
-                attack.single_bit_flip(args.max_instructions, args.low_complexity)?;
+                attack.single_bit_flip(args.max_instructions, args.deep_analysis, true)?;
             }
             _ => println!("No attack selected!"),
         }
     } else {
-        let _result = attack.fault_simulation(
-            args.max_instructions,
-            &args.faults,
-            args.deep_analysis,
-            true,
-        )?;
-        attack.custom_faults(args.max_instructions, args.low_complexity, &args.faults)?;
+        attack.custom_faults(args.max_instructions, args.deep_analysis, &args.faults, true)?;
     }
 
     let debug_context = attack.file_data.get_debug_context();

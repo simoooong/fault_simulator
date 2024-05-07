@@ -301,7 +301,10 @@ impl<'a> Cpu<'a> {
         let mut offset = 0;
         let mut manipulated_instructions = Vec::new();
 
-        let FaultType::Glitch(n) = fault.fault_type;
+        let n = match fault.fault_type {
+            FaultType::Glitch(n) => n,
+            _ => 0,
+        };
         for _count in 0..n {
             let instruction_size = self.get_asm_cmd_size(address + offset).unwrap();
             manipulated_instructions.extend_from_slice(&T1_NOP[..instruction_size]);
