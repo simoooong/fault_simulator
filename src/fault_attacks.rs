@@ -4,7 +4,11 @@ pub use crate::simulation::FlagsCPSR;
 pub use crate::simulation::FaultData;
 use crate::simulation::*;
 
+use std::io::stdout;
+use std::io::{self, Write};
+use std::error::Error;
 use addr2line::gimli;
+use csv::Writer;
 
 use rayon::prelude::*;
 use strum::IntoEnumIterator;
@@ -22,6 +26,7 @@ pub struct FaultAttacks {
     pub file_data: ElfFile,
     fault_data: Vec<Vec<FaultData>>,
     pub count_sum: usize,
+    failed: usize
 }
 
 impl FaultAttacks {
@@ -34,6 +39,7 @@ impl FaultAttacks {
             file_data,
             fault_data: Vec::new(),
             count_sum: 0,
+            failed: 0,
         })
     }
 
@@ -42,8 +48,33 @@ impl FaultAttacks {
         debug_context: &addr2line::Context<
             gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
         >,
+
     ) {
         self.cs.print_fault_records(&self.fault_data, debug_context);
+    }
+
+    pub fn write_attack_data(
+        &self,
+        len: usize,
+        data_analysis: Vec<(Vec<Vec<FaultData>>, usize)>,
+    ) -> Result<(), Box<dyn Error>>{
+        print!("\nFile path for data : (Return for no existing file): ");
+        stdout().flush().unwrap();
+        let mut buffer = String::new();
+
+        if io::stdin().read_line(&mut buffer).is_ok() {
+            if let Ok(file_path) = buffer.trim().parse::<String>() {
+                let mut writer = Writer::from_path(file_path)?;
+                writer.write_record(&["Attack Vectors", "Successful Attacks", "Failed Attacks", "Success Rate (%)", "Targeted Instructions"])?;
+
+                for (fault_data, failed) in data_analysis {
+                    self.cs.write_fault_records(len, &fault_data, &mut writer, failed)?;
+                }
+
+                writer.flush()?;
+            }
+        }
+        Ok(())
     }
 
     pub fn print_trace_for_fault(&self, cycles: usize, attack_number: usize) -> Result<(), String> {
@@ -56,7 +87,7 @@ impl FaultAttacks {
                 &self.file_data,
                 cycles,
                 RunType::RecordFullTrace,
-                false,
+                true,
                 &fault_records,
             )?);
             // Print trace
@@ -161,12 +192,14 @@ impl FaultAttacks {
         low_complexity: bool,
         args_input: &[String],
         prograss_bar: bool
-    ) -> Result<(bool, usize), String> {
+    ) -> Result<(bool, usize, Vec<(Vec<Vec<FaultData>>, usize)>), String> {
         let args_sim: Vec<FaultType> = Vec::new();
+        let mut data_analysis:Vec<(Vec<Vec<FaultData>>, usize)> = Vec::new();
 
-        self.fault_data = self.custom_faults_inner(cycles, low_complexity, args_input, args_sim, prograss_bar)?;
+        self.fault_data = self.custom_faults_inner(cycles, low_complexity, args_input, args_sim, &mut data_analysis, prograss_bar)?;
 
-        Ok((!self.fault_data.is_empty(), self.count_sum))
+        Ok((!data_analysis.is_empty(), self.count_sum, data_analysis))
+        // Ok((!self.fault_data.is_empty(), self.count_sum, data_analysis))
     }
 
     fn custom_faults_inner(
@@ -175,12 +208,17 @@ impl FaultAttacks {
         low_complexity: bool,
         args_input: &[String],
         args_sim: Vec<FaultType>,
-        prograss_bar: bool
+        data_analysis: &mut Vec<(Vec<Vec<FaultData>>, usize)>,
+        prograss_bar: bool,
     ) -> Result<Vec<Vec<FaultData>>, String> {
         if args_input.is_empty() {
             self.fault_data =
                 self.fault_simulation(cycles, &args_sim, low_complexity, prograss_bar)?;
 
+            // only add successfull attacks to the analysis
+            if !self.fault_data.is_empty() {
+                data_analysis.push((self.fault_data.clone(), self.failed));
+            }
             return Ok(self.fault_data.clone());
         }
         
@@ -191,92 +229,92 @@ impl FaultAttacks {
                 for i in 1..11 {
                     let mut data = args_sim.clone();
                     data.push(FaultType::Glitch(i));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 }
                 for flg in FlagsCPSR::iter() {
                     let mut data = args_sim.clone();
                     data.push(FaultType::BitFlip(flg));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 }
-            }
+            },
             "Glitch" => {
                 for i in 1..11 {
                     let mut data = args_sim.clone();
                     data.push(FaultType::Glitch(i));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 }
             },
             "Bitflip" => {
                 for flg in FlagsCPSR::iter() {
                     let mut data = args_sim.clone();
                     data.push(FaultType::BitFlip(flg));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 }
             },
             "Glitch1" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(1));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "Glitch2" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(2));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "Glitch3" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(3));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "Glitch4" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(4));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "Glitch5" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(5));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "Glitch6" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(6));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "Glitch7" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(7));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "Glitch8" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(9));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "Glitch9" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(9));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "Glitch10" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(10));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
                 
             },
             "BitflipZ" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::BitFlip(FlagsCPSR::Z));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
             }
             _ => return Err("Invalid Fault Type".to_string()),
         }
@@ -360,6 +398,7 @@ impl FaultAttacks {
 
         // Sum up successful attacks
         let n = n_result?;
+        self.failed = n;
         self.count_sum += n;
 
         // Return collected successful attacks to caller

@@ -40,6 +40,10 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     deep_analysis: bool,
 
+    /// Switch on data collection. Scans code against all possible attack vetors
+    #[arg(long, default_value_t = String::from(""))]
+    data: String,
+
     /// Maximum number of instructions to be executed
     #[arg(short, long, default_value_t = 2000)]
     max_instructions: usize,
@@ -86,9 +90,24 @@ fn main() -> Result<(), String> {
     println!("\nRun fault simulations:");
 
     // Run attack simulation
+    if !args.data.is_empty() {
+        
+        let mut faults = Vec::new();
+        loop {
+            faults.push(args.data.clone());
+            
+            let result = attack.custom_faults(args.max_instructions, args.deep_analysis, &faults, true)?;
+            if result.0 {
+                attack.write_attack_data(faults.len(), result.2).expect("Failed to write attack data");
+                return Ok(())
+            }
+        }
+    }
+
     if args.faults.is_empty() {
         match args.attack.as_str() {
             "all" => {
+                attack.single_bit_flip(args.max_instructions, args.deep_analysis, true)?;
                 if !attack
                     .single_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?
                     .0
@@ -100,7 +119,6 @@ fn main() -> Result<(), String> {
                         1..=10,
                     )?;
                 }
-                    attack.single_bit_flip(args.max_instructions, args.deep_analysis, true)?;
             }
             "single" => {
                 attack.single_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?;

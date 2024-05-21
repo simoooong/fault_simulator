@@ -348,7 +348,7 @@ impl<'a> Cpu<'a> {
 
         self.emu.reg_write(RegisterARM::CPSR, reg_val).expect("msg");
 
-        let mut original_instructions =  Vec::new();
+        let mut original_instructions = vec![0x00, 0x00];
 
         self.emu
             .mem_read(address, &mut original_instructions)
