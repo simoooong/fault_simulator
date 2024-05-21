@@ -1,6 +1,10 @@
+use std::fs::File;
 use crate::simulation::{FaultData, TraceRecord};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
+use csv::Writer;
+use std::error::Error;
+use std::collections::HashMap;
 
 pub struct Disassembly {
     cs: Capstone,
@@ -47,6 +51,31 @@ impl Disassembly {
             self.print_debug_info(ins.address(), debug_context);
         }
     }
+
+    
+    fn disassembly_write_fault_data(
+        &self,
+        fault_data: &FaultData,
+    ) -> HashMap<String, usize> {
+        let mut mnemonic_counts: HashMap<String, usize> = HashMap::new();
+    
+        let insns_data = self
+            .cs
+            .disasm_all(
+                &fault_data.original_instructions,
+                fault_data.record.address(),
+            )
+            .expect("Failed to disassemble");
+    
+        for ins in insns_data.iter() {
+            let mnemonic = ins.mnemonic().unwrap_or_default().to_string();
+            let count = mnemonic_counts.entry(mnemonic.clone()).or_insert(0);
+            *count += 1;
+        }
+    
+        mnemonic_counts
+    }
+
 
     /// Print trace_record of given trace_records vector
     pub fn disassembly_trace_records(&self, trace_records: &Option<Vec<TraceRecord>>) {
@@ -130,6 +159,57 @@ impl Disassembly {
             });
     }
 
+    pub fn write_fault_records(
+        &self,
+        len: usize,
+        fault_data_vec: &[Vec<FaultData>],
+        writer: &mut Writer<File>,
+        failed_attacks: usize,
+    ) -> Result<(), Box<dyn Error>> {
+        let successful_attacks = fault_data_vec.len();
+        let success_rate = format!("{:.1$}", (successful_attacks as f64) / (failed_attacks as f64) * 100.0, 3);
+        let mut attack_vectors:Vec<String> = Vec::new();
+        let mut instruction_counts: HashMap<String, usize> = HashMap::new();
+
+        fault_data_vec
+            .iter()
+            .enumerate()
+            .for_each(|(attack_num, fault_context)| {
+                println!("Attack number {}", attack_num + 1);
+                fault_context.iter().for_each(|fault_data| {
+                    if attack_num < len {
+                        attack_vectors.push(format!("{:?}", fault_data.clone().fault.fault_type));
+                    }
+                    let targets = self.disassembly_write_fault_data(fault_data);
+                    for (instruction, count) in targets {
+                        *instruction_counts.entry(instruction.clone()).or_insert(0) += count;
+                    }
+                });
+            });
+
+            // Collect the instruction counts into a vector of tuples
+            let mut instructions_with_counts: Vec<(&String, &usize)> = instruction_counts.iter().collect();
+
+            // Sort the vector by count in descending order
+            instructions_with_counts.sort_by(|a, b| b.1.cmp(a.1));
+
+            // Format the sorted instructions
+            let targeted_instructions = instructions_with_counts
+                .iter()
+                .map(|(instruction, count)| format!("{}: {}", instruction, count))
+                .collect::<Vec<String>>();
+
+            writer.write_record(&[
+                attack_vectors.join(",").to_string(),
+                successful_attacks.to_string(),
+                failed_attacks.to_string(),
+                success_rate.to_string(),
+                targeted_instructions.join(",").to_string(),
+            ])?;
+
+        Ok(())
+    }
+
     fn print_debug_info(
         &self,
         address: u64,
@@ -153,3 +233,4 @@ impl Disassembly {
         }
     }
 }
+
