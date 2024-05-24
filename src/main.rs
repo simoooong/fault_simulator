@@ -44,6 +44,10 @@ struct Args {
     #[arg(long, default_value_t = String::from(""))]
     data: String,
 
+    /// Switch on filter for instruction for search space pruning
+    #[arg(short,long, default_value_t = false)]
+    filter: bool,
+
     /// Maximum number of instructions to be executed
     #[arg(short, long, default_value_t = 2000)]
     max_instructions: usize,
@@ -91,12 +95,11 @@ fn main() -> Result<(), String> {
 
     // Run attack simulation
     if !args.data.is_empty() {
-        
         let mut faults = Vec::new();
         loop {
             faults.push(args.data.clone());
             
-            let result = attack.custom_faults(args.max_instructions, args.deep_analysis, &faults, true)?;
+            let result = attack.custom_faults(args.max_instructions, args.deep_analysis, &faults, args.filter, true)?;
             if result.0 {
                 attack.write_attack_data(faults.len(), result.2).expect("Failed to write attack data");
                 return Ok(())
@@ -107,32 +110,33 @@ fn main() -> Result<(), String> {
     if args.faults.is_empty() {
         match args.attack.as_str() {
             "all" => {
-                attack.single_bit_flip(args.max_instructions, args.deep_analysis, true)?;
+                attack.single_bit_flip(args.max_instructions, args.deep_analysis, args.filter, true)?;
                 if !attack
-                    .single_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?
+                    .single_glitch(args.max_instructions, args.deep_analysis, args.filter, true, 1..=10)?
                     .0
                 {
                     attack.double_glitch(
                         args.max_instructions,
                         args.deep_analysis,
+                        args.filter,
                         true,
                         1..=10,
                     )?;
                 }
             }
             "single" => {
-                attack.single_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?;
+                attack.single_glitch(args.max_instructions, args.deep_analysis, args.filter, true, 1..=10)?;
             }
             "double" => {
-                attack.double_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?;
+                attack.double_glitch(args.max_instructions, args.deep_analysis, args.filter, true, 1..=10)?;
             }
             "bit_flip" => {
-                attack.single_bit_flip(args.max_instructions, args.deep_analysis, true)?;
+                attack.single_bit_flip(args.max_instructions, args.deep_analysis, args.filter, true)?;
             }
             _ => println!("No attack selected!"),
         }
     } else {
-        attack.custom_faults(args.max_instructions, args.deep_analysis, &args.faults, true)?;
+        attack.custom_faults(args.max_instructions, args.deep_analysis, &args.faults, args.filter,  true)?;
     }
 
     let debug_context = attack.file_data.get_debug_context();

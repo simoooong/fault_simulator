@@ -58,14 +58,14 @@ impl FaultAttacks {
         len: usize,
         data_analysis: Vec<(Vec<Vec<FaultData>>, usize)>,
     ) -> Result<(), Box<dyn Error>>{
-        print!("\nFile path for data : (Return for no existing file): ");
+        print!("\nFile path for data (Return for no existing file): ");
         stdout().flush().unwrap();
         let mut buffer = String::new();
 
         if io::stdin().read_line(&mut buffer).is_ok() {
             if let Ok(file_path) = buffer.trim().parse::<String>() {
                 let mut writer = Writer::from_path(file_path)?;
-                writer.write_record(&["Attack Vectors", "Successful Attacks", "Failed Attacks", "Success Rate (%)", "Targeted Instructions"])?;
+                writer.write_record(&["Attack Vectors", "Successful Attacks", "Executed Attacks", "Success Rate (%)", "Targeted Instructions"])?;
 
                 for (fault_data, failed) in data_analysis {
                     self.cs.write_fault_records(len, &fault_data, &mut writer, failed)?;
@@ -112,6 +112,7 @@ impl FaultAttacks {
         &mut self,
         cycles: usize,
         deep_analysis: bool,
+        to_filter: bool,
         prograss_bar: bool,
         range: std::ops::RangeInclusive<usize>,
     ) -> Result<(bool, usize), String> {
@@ -121,6 +122,7 @@ impl FaultAttacks {
                 cycles,
                 &[FaultType::Glitch(i)],
                 deep_analysis,
+                to_filter,
                 prograss_bar,
             )?;
 
@@ -140,6 +142,7 @@ impl FaultAttacks {
         &mut self,
         cycles: usize,
         deep_analysis: bool,
+        to_filter: bool,
         prograss_bar: bool,
         range: std::ops::RangeInclusive<usize>,
     ) -> Result<(bool, usize), String> {
@@ -150,6 +153,7 @@ impl FaultAttacks {
                 cycles,
                 &[FaultType::Glitch(t.0), FaultType::Glitch(t.1)],
                 deep_analysis,
+                to_filter,
                 prograss_bar,
             )?;
 
@@ -168,11 +172,12 @@ impl FaultAttacks {
         &mut self,
         cycles: usize,
         deep_analysis: bool,
+        to_filter: bool,
         prograss_bar: bool,
     ) -> Result<(bool, usize), String> {
         for flg in FlagsCPSR::iter() {
             self.fault_data =
-                self.fault_simulation(cycles, &[FaultType::BitFlip(flg)], deep_analysis, prograss_bar)?;
+                self.fault_simulation(cycles, &[FaultType::BitFlip(flg)], deep_analysis, to_filter, prograss_bar)?;
 
             if !self.fault_data.is_empty() {
                 break;
@@ -191,12 +196,13 @@ impl FaultAttacks {
         cycles: usize,
         low_complexity: bool,
         args_input: &[String],
+        to_filter: bool,
         prograss_bar: bool
     ) -> Result<(bool, usize, Vec<(Vec<Vec<FaultData>>, usize)>), String> {
         let args_sim: Vec<FaultType> = Vec::new();
         let mut data_analysis:Vec<(Vec<Vec<FaultData>>, usize)> = Vec::new();
 
-        self.fault_data = self.custom_faults_inner(cycles, low_complexity, args_input, args_sim, &mut data_analysis, prograss_bar)?;
+        self.fault_data = self.custom_faults_inner(cycles, low_complexity, args_input, args_sim, &mut data_analysis, to_filter, prograss_bar)?;
 
         Ok((!data_analysis.is_empty(), self.count_sum, data_analysis))
         // Ok((!self.fault_data.is_empty(), self.count_sum, data_analysis))
@@ -209,11 +215,12 @@ impl FaultAttacks {
         args_input: &[String],
         args_sim: Vec<FaultType>,
         data_analysis: &mut Vec<(Vec<Vec<FaultData>>, usize)>,
+        to_filter: bool,
         prograss_bar: bool,
     ) -> Result<Vec<Vec<FaultData>>, String> {
         if args_input.is_empty() {
             self.fault_data =
-                self.fault_simulation(cycles, &args_sim, low_complexity, prograss_bar)?;
+                self.fault_simulation(cycles, &args_sim, low_complexity, to_filter, prograss_bar)?;
 
             // only add successfull attacks to the analysis
             if !self.fault_data.is_empty() {
@@ -229,92 +236,82 @@ impl FaultAttacks {
                 for i in 1..11 {
                     let mut data = args_sim.clone();
                     data.push(FaultType::Glitch(i));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
                 }
                 for flg in FlagsCPSR::iter() {
                     let mut data = args_sim.clone();
                     data.push(FaultType::BitFlip(flg));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
                 }
             },
             "Glitch" => {
                 for i in 1..11 {
                     let mut data = args_sim.clone();
                     data.push(FaultType::Glitch(i));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
                 }
             },
             "Bitflip" => {
                 for flg in FlagsCPSR::iter() {
                     let mut data = args_sim.clone();
                     data.push(FaultType::BitFlip(flg));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
                 }
             },
             "Glitch1" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(1));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "Glitch2" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(2));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "Glitch3" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(3));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "Glitch4" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(4));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "Glitch5" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(5));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "Glitch6" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(6));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "Glitch7" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(7));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "Glitch8" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(9));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "Glitch9" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(9));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "Glitch10" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::Glitch(10));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
-                
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             },
             "BitflipZ" => {
                 let mut data = args_sim.clone();
                 data.push(FaultType::BitFlip(FlagsCPSR::Z));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, prograss_bar)?;
+                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
             }
             _ => return Err("Invalid Fault Type".to_string()),
         }
@@ -327,6 +324,7 @@ impl FaultAttacks {
         cycles: usize,
         faults: &[FaultType],
         deep_analysis: bool,
+        to_filter: bool,
         prograss_bar: bool,
     ) -> Result<Vec<Vec<FaultData>>, String> {
         //
@@ -361,10 +359,12 @@ impl FaultAttacks {
         let temp_file_data = &self.file_data;
         let n_result: Result<usize, String> = records
             .into_par_iter()
+            .filter(|r| Self::check_execute(r, to_filter))
             .map_with(sender, |s, record| -> Result<usize, String> {
                 if let Some(bar) = &bar {
                     bar.inc(1);
                 }
+                
 
                 let number;
                 // Get index of the record
@@ -382,8 +382,10 @@ impl FaultAttacks {
                         remaining_faults,
                         &simulation_fault_records,
                         deep_analysis,
+                        to_filter,
                         s,
                     )?;
+                    
                 } else {
                     return Err("No instruction record found".to_string());
                 }
@@ -417,6 +419,7 @@ impl FaultAttacks {
         faults: &[FaultType],
         simulation_fault_records: &[SimulationFaultRecord],
         deep_analysis: bool,
+        to_filter: bool,
         s: &mut Sender<Vec<FaultData>>,
     ) -> Result<usize, String> {
         let mut n = 0;
@@ -441,6 +444,10 @@ impl FaultAttacks {
 
             // Iterate over trace records
             for record in records {
+                if !Self::check_execute(&record, to_filter) {
+                    continue;
+                }
+
                 // Get index of the record
                 if let TraceRecord::Instruction { index, .. } = record {
                     // Create a copy of the simulation fault records
@@ -458,6 +465,7 @@ impl FaultAttacks {
                         remaining_faults,
                         &index_simulation_fault_records,
                         deep_analysis,
+                        to_filter,
                         s,
                     )?;
                 }
@@ -465,6 +473,16 @@ impl FaultAttacks {
         }
 
         Ok(n)
+    }
+
+    fn check_execute(record: &TraceRecord, to_filter: bool) -> bool {
+        if to_filter {
+            let cs = Disassembly::new();
+            let filter = vec!["bne", "cmp", "ldr", "bl"];
+            return cs.check_trace_record(record.clone(), filter);
+        }
+
+        return true;
     }
 }
 

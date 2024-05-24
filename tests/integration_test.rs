@@ -13,14 +13,14 @@ fn run_single_glitch() {
     // Result is (success: bool, number_of_attacks: usize)
     assert_eq!(
         (true, 39),
-        attack.single_glitch(2000, false, false, 1..=10).unwrap()
+        attack.single_glitch(2000, false, false, false, 1..=10).unwrap()
     );
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     assert_eq!(
         (false, 550),
-        attack.single_glitch(2000, false, false, 1..=10).unwrap()
+        attack.single_glitch(2000, false, false, false, 1..=10).unwrap()
     );
 }
 
@@ -36,13 +36,13 @@ fn run_double_glitch() {
     // Result is (success: bool, number_of_attacks: usize)
     assert_eq!(
         (true, 7360),
-        attack.double_glitch(2000, false, false, 1..=10).unwrap()
+        attack.double_glitch(2000, false, false, false, 1..=10).unwrap()
     );
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     assert_eq!(
         (false, 48970),
-        attack.double_glitch(2000, false, false, 1..=10).unwrap()
+        attack.double_glitch(2000, false, false, false, 1..=10).unwrap()
     );
 }
 
@@ -57,7 +57,7 @@ fn run_fault_simulation() {
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
     // Result is Vec<Vec<FaultData>>
     let result = attack
-        .fault_simulation(2000, &[FaultType::Glitch(1)], false, false)
+        .fault_simulation(2000, &[FaultType::Glitch(1)], false, false, false)
         .unwrap();
 
     // Check if correct faults are found (at: 0x800004b6, 0x80000626)
@@ -80,6 +80,7 @@ fn run_fault_simulation() {
             &[FaultType::Glitch(1), FaultType::Glitch(10)],
             false,
             false,
+            false
         )
         .unwrap();
 
