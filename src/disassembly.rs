@@ -40,7 +40,6 @@ impl Disassembly {
 
         for i in 0..insns_data.as_ref().len() {
             let ins = &insns_data.as_ref()[i];
-
             println!(
                 "0x{:X}:  {} {} -> {:?}",
                 ins.address(),
@@ -136,6 +135,30 @@ impl Disassembly {
                 });
             println!("------------------------");
         }
+    }
+
+    // check if a given trace matches a instrucion
+    pub fn check_trace_record(&self, record: TraceRecord, filter: Vec<&str>) -> bool {
+        match record {
+            TraceRecord::Instruction {
+                address,
+                index: _,
+                asm_instruction,
+                registers: _
+            } => {
+                let insns_data = self
+                    .cs
+                    .disasm_all(&asm_instruction, address)
+                    .expect("Failed to disassemble");
+
+                for i in 0..insns_data.as_ref().len() {
+                     let ins = &insns_data.as_ref()[i];
+                     return filter.iter().any(|&v| v == ins.mnemonic().unwrap());      
+                }
+            },
+            _ => ()
+        }
+        return false;
     }
 
     /// Print fault data of given fault_data_vec vector
