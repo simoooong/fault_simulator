@@ -198,9 +198,9 @@ impl Disassembly {
             .iter()
             .enumerate()
             .for_each(|(attack_num, fault_context)| {
-                println!("Attack number {}", attack_num + 1);
-                fault_context.iter().for_each(|fault_data| {
-                    if attack_num < len {
+                // println!("Attack number {}", attack_num + 1);
+                fault_context.iter().enumerate().for_each(|(pos, fault_data)| {
+                    if attack_num == 0 && pos < len {
                         attack_vectors.push(format!("{:?}", fault_data.clone().fault.fault_type));
                     }
                     let targets = self.disassembly_write_fault_data(fault_data);
