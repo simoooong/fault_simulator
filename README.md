@@ -50,9 +50,11 @@ Program parameters:
 -t, --threads <THREADS>  Number of threads started in parallel [default: 1]
 -n, --no-compilation     Suppress re-compilation of target program
     --attack <ATTACK>    Attacks to be executed. Possible values are: all, single, double, bit_flip [default: all]
-    --faults <FAULTS>    Run a command line defined sequence of faults. Alternative to --attack [possible values: Glitch, Glitch2, Glitch3, Glitch4, Glitch5]
+    --faults <FAULTS>    Run a command line defined sequence of faults. Alternative to --attack [possible values: All, Glitch, Bitflip, Glitch1, Glitch2, ...]
 -a, --analysis           Activate trace analysis of picked fault
 -d, --deep-analysis      Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
+    --data <Faults>      Switch on data collection. Scans code against all possible attack vetors
+-f, --filter             Switch on filter for instruction for search space pruning
 -m, --max_instructions   Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
 -e, --elf <FILE>         Run attack simulation from external elf file w/o compilation step
 -h, --help               Print help
