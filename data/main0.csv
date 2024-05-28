@@ -1,0 +1,11 @@
+Attack Vectors,Successful Attacks,Failed Attacks,Success Rate (%),Targeted Instructions
+Glitch(2),1,31,3.226,ldr: 2
+Glitch(3),1,31,3.226,"bl: 1,pop: 1,movs: 1"
+Glitch(4),2,31,6.452,"bl: 3,pop: 2,movs: 2,ldr: 1"
+Glitch(5),3,31,9.677,"bl: 5,pop: 3,movs: 3,add: 2,ldr: 2"
+Glitch(6),5,31,16.129,"ldr: 9,bl: 8,add: 5,movs: 4,pop: 4"
+Glitch(7),5,31,16.129,"bl: 10,ldr: 10,add: 6,movs: 4,pop: 4,beq: 1"
+Glitch(8),5,31,16.129,"ldr: 11,bl: 10,add: 8,pop: 4,movs: 4,beq: 2,cmp: 1"
+Glitch(9),5,31,16.129,"ldr: 14,bl: 10,add: 8,movs: 4,pop: 4,beq: 3,cmp: 2"
+Glitch(10),5,31,16.129,"ldr: 16,bl: 11,add: 8,beq: 4,movs: 4,pop: 4,cmp: 3"
+BitFlip(Z),1,31,3.226,beq: 1
