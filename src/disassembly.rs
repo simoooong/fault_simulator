@@ -1,4 +1,5 @@
 use std::fs::File;
+use crate::prelude::FaultType;
 use crate::simulation::{FaultData, TraceRecord};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
@@ -137,6 +138,69 @@ impl Disassembly {
         }
     }
 
+    pub fn write_instruction_information(
+        &self,
+        trace_records: Vec<TraceRecord>,
+        instruction_rel: HashMap<String, f64>,
+        len: usize,
+        writer: &mut Writer<File>,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut mnemonic_counts: HashMap<String, usize> = HashMap::new();
+
+        trace_records
+                .iter()
+                .for_each(|trace_record| match trace_record {
+                    TraceRecord::Instruction {
+                        address,
+                        index: _,
+                        asm_instruction,
+                        registers: _,
+                    } => {
+                        let insns_data = self
+                            .cs
+                            .disasm_all(asm_instruction, *address)
+                            .expect("Failed to disassemble");
+
+                            for ins in insns_data.iter() {
+                                let mnemonic = ins.mnemonic().unwrap_or_default().to_string();
+                                let count = mnemonic_counts.entry(mnemonic.clone()).or_insert(0);
+                                *count += 1;
+                            }
+                    }
+                    _ => ()
+                });
+        
+        let instructions_with_counts: Vec<(&String, &usize)> = mnemonic_counts.iter().collect();
+        
+        let mut writing = Vec::new();
+        for (instr,count) in instructions_with_counts {
+
+            let rel = match instruction_rel.get(instr) {
+                Some(&value) => value,
+                _ => 0.0
+            };
+            let rel_distribution = rel / ((len as f64) * (*count as f64));
+
+            writing.push((instr, count, rel_distribution));
+
+            
+        }
+        writing.sort_by(|a,b| a.2.partial_cmp(&b.2).unwrap());
+        writing.reverse();
+
+        for (instr, count, rel) in writing {
+            let rel_distribution = format!("{:.1$}", rel , 10);
+
+            writer.write_record(&[
+                instr.to_string(),
+                count.to_string(),
+                rel_distribution
+            ])?;
+        }
+        
+        Ok(())
+    }
+
     // check if a given trace matches a instrucion
     pub fn check_trace_record(&self, record: TraceRecord, filter: Vec<&str>) -> bool {
         match record {
@@ -188,6 +252,7 @@ impl Disassembly {
         fault_data_vec: &[Vec<FaultData>],
         writer: &mut Writer<File>,
         failed_attacks: usize,
+        instruction_rel: &mut HashMap<String, f64>,
     ) -> Result<(), Box<dyn Error>> {
         let successful_attacks = fault_data_vec.len();
         let success_rate = format!("{:.1$}", (successful_attacks as f64) / (failed_attacks as f64) * 100.0, 3);
@@ -206,6 +271,16 @@ impl Disassembly {
                     let targets = self.disassembly_write_fault_data(fault_data);
                     for (instruction, count) in targets {
                         *instruction_counts.entry(instruction.clone()).or_insert(0) += count;
+
+                        let instr_size = match fault_data.fault.fault_type {
+                            FaultType::Glitch(i) => i,
+                            FaultType::BitFlip(_) => 1,
+                        };
+                        *instruction_rel.entry(instruction.clone()).or_insert(0.0) += (count as f64) / (instr_size as f64);
+
+                       if instruction == "push" {
+                        print!("Attack number{}:___count:{}____fault_data_instruction_len{}__x:{}\n\n", attack_num, count, fault_data.original_instructions.len(), instr_size);
+                    }
                     }
                 });
             });

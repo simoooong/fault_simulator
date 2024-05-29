@@ -101,7 +101,7 @@ fn main() -> Result<(), String> {
             
             let result = attack.custom_faults(args.max_instructions, args.deep_analysis, &faults, args.filter, true)?;
             if result.0 {
-                attack.write_attack_data(faults.len(), result.2).expect("Failed to write attack data");
+                attack.write_attack_data(args.max_instructions, args.deep_analysis, faults.len(), result.2).expect("Failed to write attack data");
                 return Ok(())
             }
         }
