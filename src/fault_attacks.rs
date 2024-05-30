@@ -4,6 +4,7 @@ pub use crate::simulation::FlagsCPSR;
 pub use crate::simulation::FaultData;
 use crate::simulation::*;
 
+use std::fmt::format;
 use std::io::stdout;
 use std::io::{self, Write};
 use std::error::Error;
@@ -14,6 +15,7 @@ use rayon::prelude::*;
 use strum::IntoEnumIterator;
 
 use std::sync::mpsc::{channel, Sender};
+use std::collections::HashMap;
 
 use indicatif::ProgressBar;
 
@@ -55,25 +57,45 @@ impl FaultAttacks {
 
     pub fn write_attack_data(
         &self,
+        cycles: usize,
+        deep_analysis: bool,
         len: usize,
         data_analysis: Vec<(Vec<Vec<FaultData>>, usize)>,
     ) -> Result<(), Box<dyn Error>>{
+        let mut instruction_rel: HashMap<String, f64> = HashMap::new();
+
         print!("\nFile path for data (Return for no existing file): ");
         stdout().flush().unwrap();
         let mut buffer = String::new();
 
         if io::stdin().read_line(&mut buffer).is_ok() {
             if let Ok(file_path) = buffer.trim().parse::<String>() {
-                let mut writer = Writer::from_path(file_path)?;
-                writer.write_record(&["Attack Vectors", "Successful Attacks", "Executed Attacks", "Success Rate (%)", "Targeted Instructions"])?;
+                let mut writer_1 = Writer::from_path(format!("{file_path}.csv"))?;
+                writer_1.write_record(&["Attack Vectors", "Successful Attacks", "Executed Attacks", "Success Rate (%)", "Targeted Instructions"])?;
 
-                for (fault_data, failed) in data_analysis {
-                    self.cs.write_fault_records(len, &fault_data, &mut writer, failed)?;
+                for (fault_data, failed) in data_analysis.clone() {
+                    self.cs.write_fault_records(len, &fault_data, &mut writer_1, failed, &mut instruction_rel)?;
                 }
+                writer_1.flush()?;
 
-                writer.flush()?;
+
+                let mut writer_2 = Writer::from_path(format!("{file_path}_rel.csv"))?;
+                writer_2.write_record(&["Instruction", "Targeted", "Relative"])?;
+
+                let trace_records = trace_run(
+                    &self.file_data,
+                    cycles,
+                    RunType::RecordTrace,
+                    deep_analysis,
+                    &[],
+                )?;
+                
+                self.cs.write_instruction_information(trace_records,  instruction_rel, data_analysis.len(), &mut writer_2)?;
+
+                writer_2.flush()?;
             }
         }
+
         Ok(())
     }
 
