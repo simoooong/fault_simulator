@@ -4,7 +4,6 @@ pub use crate::simulation::FlagsCPSR;
 pub use crate::simulation::FaultData;
 use crate::simulation::*;
 
-use std::fmt::format;
 use std::io::stdout;
 use std::io::{self, Write};
 use std::error::Error;

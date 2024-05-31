@@ -1,2 +1,2 @@
-Attack Vectors,Successful Attacks,Failed Attacks,Success Rate (%),Targeted Instructions
+Attack Vectors,Successful Attacks,Executed Attacks,Success Rate (%),Targeted Instructions
 "Glitch(1),Glitch(10)",1,2748,0.036,"ldr: 4,cmp: 2,ldm.w: 1,bl: 1,beq: 1,bne: 1,stm.w: 1"
