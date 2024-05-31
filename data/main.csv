@@ -1,4 +1,4 @@
-Attack Vectors,Successful Attacks,Failed Attacks,Success Rate (%),Targeted Instructions
+Attack Vectors,Successful Attacks,Executed Attacks,Success Rate (%),Targeted Instructions
 Glitch(1),43,159,27.044,"bne: 22,cmp: 20,ldr: 1"
 Glitch(2),45,159,28.302,"bne: 43,cmp: 43,b: 1,adds: 1,ldr: 1,str: 1"
 Glitch(3),26,159,16.352,"bne: 43,cmp: 23,ldr: 3,str: 2,adds: 2,b: 2,bl: 1,mov: 1,movs: 1"

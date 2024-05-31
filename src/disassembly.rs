@@ -277,10 +277,6 @@ impl Disassembly {
                             FaultType::BitFlip(_) => 1,
                         };
                         *instruction_rel.entry(instruction.clone()).or_insert(0.0) += (count as f64) / (instr_size as f64);
-
-                       if instruction == "push" {
-                        print!("Attack number{}:___count:{}____fault_data_instruction_len{}__x:{}\n\n", attack_num, count, fault_data.original_instructions.len(), instr_size);
-                    }
                     }
                 });
             });

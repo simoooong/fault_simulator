@@ -1,4 +1,4 @@
-Attack Vectors,Successful Attacks,Failed Attacks,Success Rate (%),Targeted Instructions
+Attack Vectors,Successful Attacks,Executed Attacks,Success Rate (%),Targeted Instructions
 Glitch(2),1,31,3.226,ldr: 2
 Glitch(3),1,31,3.226,"bl: 1,pop: 1,movs: 1"
 Glitch(4),2,31,6.452,"bl: 3,pop: 2,movs: 2,ldr: 1"
