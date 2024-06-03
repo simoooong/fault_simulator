@@ -47,6 +47,28 @@ fn run_double_glitch() {
 }
 
 #[test]
+/// Test for bit flip attack api
+///
+/// This test runs a bit flip atttacks on two different binaries (victim_.elf, victim_4.elf)
+/// and checks if faults are found with the correct number of attack iterations
+fn run_single_bit_flip() {
+    env::set_var("RAYON_NUM_THREADS", "1");
+    // Load victim data for attack simulation
+    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
+    // Result is (success: bool, number_of_attacks: usize)
+    assert_eq!(
+        (true, 78),
+        attack.single_bit_flip(2000, false, false, false).unwrap()
+    );
+    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
+    // Result is (success: bool, number_of_attacks: usize)
+    assert_eq!(
+        (false, 330),
+        attack.single_bit_flip(2000, false, false, false).unwrap()
+    );
+}
+
+#[test]
 /// Test for fault simulation api
 ///
 /// This test runs a fault simulation on two different binaries (victim_.elf, victim_3.elf)
