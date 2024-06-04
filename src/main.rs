@@ -45,8 +45,9 @@ struct Args {
     data: String,
 
     /// Switch on filter for instruction for search space pruning
-    #[arg(short,long, default_value_t = false)]
-    filter: bool,
+    #[arg(short, long, default_value_t = FilterValue(1.0, 1))]
+    filter: FilterValue,
+
 
     /// Maximum number of instructions to be executed
     #[arg(short, long, default_value_t = 2000)]

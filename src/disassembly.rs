@@ -202,7 +202,8 @@ impl Disassembly {
     }
 
     // check if a given trace matches a instrucion
-    pub fn check_trace_record(&self, record: TraceRecord, filter: Vec<&str>) -> bool {
+    pub fn get_instr(&self, record: &TraceRecord) -> String {
+        let record = record.clone();
         match record {
             TraceRecord::Instruction {
                 address,
@@ -216,13 +217,13 @@ impl Disassembly {
                     .expect("Failed to disassemble");
 
                 for i in 0..insns_data.as_ref().len() {
-                     let ins = &insns_data.as_ref()[i];
-                     return filter.iter().any(|&v| v == ins.mnemonic().unwrap());      
+                    let ins = &insns_data.as_ref()[i];
+                    return ins.mnemonic().unwrap().to_string();
                 }
             },
             _ => ()
         }
-        return false;
+        return "".to_string();
     }
 
     /// Print fault data of given fault_data_vec vector
@@ -251,11 +252,11 @@ impl Disassembly {
         len: usize,
         fault_data_vec: &[Vec<FaultData>],
         writer: &mut Writer<File>,
-        failed_attacks: usize,
+        executed_attacks: usize,
         instruction_rel: &mut HashMap<String, f64>,
     ) -> Result<(), Box<dyn Error>> {
         let successful_attacks = fault_data_vec.len();
-        let success_rate = format!("{:.1$}", (successful_attacks as f64) / (failed_attacks as f64) * 100.0, 3);
+        let success_rate = format!("{:.1$}", (successful_attacks as f64) / (executed_attacks as f64) * 100.0, 3);
         let mut attack_vectors:Vec<String> = Vec::new();
         let mut instruction_counts: HashMap<String, usize> = HashMap::new();
 
@@ -296,7 +297,7 @@ impl Disassembly {
             writer.write_record(&[
                 attack_vectors.join(",").to_string(),
                 successful_attacks.to_string(),
-                failed_attacks.to_string(),
+                executed_attacks.to_string(),
                 success_rate.to_string(),
                 targeted_instructions.join(",").to_string(),
             ])?;
