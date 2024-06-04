@@ -61,6 +61,7 @@ impl FaultAttacks {
         cycles: usize,
         deep_analysis: bool,
         len: usize,
+        total_executed: usize,
         data_analysis: Vec<(Vec<Vec<FaultData>>, usize)>,
     ) -> Result<(), Box<dyn Error>>{
         let mut instruction_rel: HashMap<String, f64> = HashMap::new();
@@ -74,11 +75,12 @@ impl FaultAttacks {
                 let mut writer_1 = Writer::from_path(format!("{file_path}.csv"))?;
                 writer_1.write_record(&["Attack Vectors", "Successful Attacks", "Executed Attacks", "Success Rate (%)", "Targeted Instructions"])?;
 
+                let mut total_success = 0;
                 for (fault_data, failed) in data_analysis.clone() {
                     self.cs.write_fault_records(len, &fault_data, &mut writer_1, failed, &mut instruction_rel)?;
+                    total_success += fault_data.len();
                 }
                 writer_1.flush()?;
-
 
                 let mut writer_2 = Writer::from_path(format!("{file_path}_rel.csv"))?;
                 writer_2.write_record(&["Instruction", "Targeted", "Relative"])?;
@@ -90,10 +92,26 @@ impl FaultAttacks {
                     deep_analysis,
                     &[],
                 )?;
+
+                // Get probability per attack, since we execute len attacks
+                for p in instruction_rel.values_mut() {
+                    *p /= len as f64;
+                }                
                 
                 self.cs.write_instruction_information(trace_records,  instruction_rel, data_analysis.len(), &mut writer_2)?;
 
                 writer_2.flush()?;
+
+                let mut writer_3 = Writer::from_path(format!("{file_path}_total.csv"))?;
+                writer_3.write_record(&["#Successful", "#Executed", "Successrate (%)"])?;
+
+                writer_3.write_record(&[
+                    total_success.to_string(),
+                    total_executed.to_string(),
+                    format!("{:.1$}", (total_success as f64) / (total_executed as f64) * 100.0, 10).to_string()
+                ])?;
+
+                writer_3.flush()?;
             }
         }
 
@@ -508,22 +526,8 @@ impl FaultAttacks {
         if to_filter.0 == 0.0 {
             return Vec::new();
         }
-        match to_filter.1 {
-            1 => {
-                return Self::filter_1(records, prob_table, mean, k, to_filter.0);
-            },
-            2 => {
-                return Self::filter_2(records, prob_table, mean , k,  to_filter.0);
-            }
-            _ => {
-                return Vec::new();
-            },
-        }
-    }
 
-    fn filter_1(records: Vec<TraceRecord>, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
-        let cs = Disassembly::new();
-        let mut sorted_records: Vec<TraceRecord> = records
+        let mut filtered_records: Vec<TraceRecord> = records
             .iter()
             .filter_map(|trace| {
                 if let TraceRecord::Instruction { .. } = trace {
@@ -533,17 +537,34 @@ impl FaultAttacks {
                 }
             })
             .collect();
+
+        match to_filter.1 {
+            1 => {
+                return Self::filter_1(&mut filtered_records, prob_table, mean, k, to_filter.0);
+            },
+            2 => {
+                return Self::filter_2(filtered_records, prob_table, mean , k,  to_filter.0);
+            }
+            _ => {
+                return Vec::new();
+            },
+        }
+    }
+
+    fn filter_1(records: &mut Vec<TraceRecord>, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
+        let cs = Disassembly::new();
         
-        let n = sorted_records.len();
+        
+        let n = records.len();
         let size = (f64::powf(x, 1.0 / k as f64) * (n as f64)).ceil() as usize;
 
-        sorted_records.sort_by(|a, b| {
+        records.sort_by(|a, b| {
             let prob_a = prob_table.get(&cs.get_instr(a)).unwrap_or(&mean);
             let prob_b = prob_table.get(&cs.get_instr(b)).unwrap_or(&mean);
             prob_b.partial_cmp(prob_a).unwrap_or(std::cmp::Ordering::Equal)
         });
         
-        return sorted_records[..size].to_vec();
+        return records[..size].to_vec();
     }
 
     fn filter_2(records: Vec<TraceRecord>, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
@@ -633,31 +654,50 @@ impl FaultAttacks {
     fn create_prob_table() -> (HashMap<String, f64>, f64) {
         let mut prob_table = HashMap::new();
 
-        prob_table.insert("b".to_string(), 58.398 / 100.0);
-        prob_table.insert("adds".to_string(), 29.618 / 100.0);
-        prob_table.insert("movs".to_string(), 26.906 / 100.0);
-        prob_table.insert("bne".to_string(), 23.093 / 100.0);
-        prob_table.insert("pop".to_string(), 15.611 / 100.0);
-        prob_table.insert("cmp".to_string(), 15.285 / 100.0);
-        prob_table.insert("bl".to_string(), 10.821 / 100.0);
-        prob_table.insert("str".to_string(), 10.809 / 100.0);
-        prob_table.insert("ldr".to_string(), 9.309 / 100.0);
-        prob_table.insert("beq".to_string(), 8.572 / 100.0);
-        prob_table.insert("cbz".to_string(), 5.884 / 100.0);
-        prob_table.insert("mov".to_string(), 5.215 / 100.0);
-        prob_table.insert("ldm.w".to_string(), 5.0 / 100.0);
-        prob_table.insert("stm.w".to_string(), 5.0 / 100.0);
-        prob_table.insert("add".to_string(), 4.978 / 100.0);
-        prob_table.insert("ldrb".to_string(), 2.632 / 100.0);
-        prob_table.insert("push".to_string(), 0.202 / 100.0);
-        prob_table.insert("bx".to_string(), 0.0);
-        prob_table.insert("add.w".to_string(), 0.0);
-        prob_table.insert("eors".to_string(), 0.0);
-        prob_table.insert("blo".to_string(), 0.0);
-        prob_table.insert("mov.w".to_string(), 0.0);
-        prob_table.insert("stm".to_string(), 0.0);
-        prob_table.insert("strd".to_string(), 0.0);
-        prob_table.insert("sub".to_string(), 0.0);
+        prob_table.insert("str".to_string(), 0.8185823543);
+        prob_table.insert("cmp".to_string(), 0.4876647557);
+        prob_table.insert("movs".to_string(), 0.4396788568);
+        prob_table.insert("bl".to_string(), 0.2639400649);
+        prob_table.insert("stm.w".to_string(), 0.1948807069);
+        prob_table.insert("eors".to_string(), 0.1441131428);
+        prob_table.insert("ldm.w".to_string(), 0.1202486834);
+        prob_table.insert("beq".to_string(), 0.1140286320);
+        prob_table.insert("push".to_string(), 0.1012555396);
+        prob_table.insert("ldr".to_string(), 0.0967017150);
+        prob_table.insert("add".to_string(), 0.0896197561);
+        prob_table.insert("mov".to_string(), 0.0861948956);
+        prob_table.insert("add.w".to_string(), 0.0725542911);
+        prob_table.insert("pop".to_string(), 0.0594311249);
+        prob_table.insert("stm".to_string(), 0.0306264501);
+        prob_table.insert("bx".to_string(), 0.0166666667);
+        prob_table.insert("strd".to_string(), 0.0000000000);
+        prob_table.insert("sub".to_string(), 0.0000000000);
+
+        // prob_table.insert("b".to_string(), 58.398 / 100.0);
+        // prob_table.insert("adds".to_string(), 29.618 / 100.0);
+        // prob_table.insert("movs".to_string(), 26.906 / 100.0);
+        // prob_table.insert("bne".to_string(), 23.093 / 100.0);
+        // prob_table.insert("pop".to_string(), 15.611 / 100.0);
+        // prob_table.insert("cmp".to_string(), 15.285 / 100.0);
+        // prob_table.insert("bl".to_string(), 10.821 / 100.0);
+        // prob_table.insert("str".to_string(), 10.809 / 100.0);
+        // prob_table.insert("ldr".to_string(), 9.309 / 100.0);
+        // prob_table.insert("beq".to_string(), 8.572 / 100.0);
+        // prob_table.insert("cbz".to_string(), 5.884 / 100.0);
+        // prob_table.insert("mov".to_string(), 5.215 / 100.0);
+        // prob_table.insert("ldm.w".to_string(), 5.0 / 100.0);
+        // prob_table.insert("stm.w".to_string(), 5.0 / 100.0);
+        // prob_table.insert("add".to_string(), 4.978 / 100.0);
+        // prob_table.insert("ldrb".to_string(), 2.632 / 100.0);
+        // prob_table.insert("push".to_string(), 0.202 / 100.0);
+        // prob_table.insert("bx".to_string(), 0.0);
+        // prob_table.insert("add.w".to_string(), 0.0);
+        // prob_table.insert("eors".to_string(), 0.0);
+        // prob_table.insert("blo".to_string(), 0.0);
+        // prob_table.insert("mov.w".to_string(), 0.0);
+        // prob_table.insert("stm".to_string(), 0.0);
+        // prob_table.insert("strd".to_string(), 0.0);
+        // prob_table.insert("sub".to_string(), 0.0);
 
             // for prob in prob_table.values_mut() {
             //     *prob = 0.1;
