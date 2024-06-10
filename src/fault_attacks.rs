@@ -76,8 +76,8 @@ impl FaultAttacks {
                 writer_1.write_record(&["Attack Vectors", "Successful Attacks", "Executed Attacks", "Success Rate (%)", "Targeted Instructions"])?;
 
                 let mut total_success = 0;
-                for (fault_data, failed) in data_analysis.clone() {
-                    self.cs.write_fault_records(len, &fault_data, &mut writer_1, failed, &mut instruction_rel)?;
+                for (fault_data, executed) in data_analysis.clone() {
+                    self.cs.write_fault_records(len, &fault_data, &mut writer_1, executed, &mut instruction_rel)?;
                     total_success += fault_data.len();
                 }
                 writer_1.flush()?;
@@ -545,10 +545,170 @@ impl FaultAttacks {
             2 => {
                 return Self::filter_2(filtered_records, prob_table, mean , k,  to_filter.0);
             }
+            3 => {
+                return Self::filter_3(&mut filtered_records, FaultType::Glitch(10), prob_table, mean, k, to_filter.0);
+            }
+            4 => {
+                return Self::filter_4(&mut filtered_records, FaultType::Glitch(10), prob_table, mean, k, to_filter.0);
+            }
             _ => {
                 return Vec::new();
             },
         }
+    }
+
+    fn filter_4(records: &mut Vec<TraceRecord>, fault_type: FaultType, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
+        let cs = Disassembly::new();
+        
+        records.sort_by(|a, b| {
+            if let TraceRecord::Instruction { index: index_a, .. } = a {
+                if let TraceRecord::Instruction { index: index_b, .. } = b {
+                    return index_a.cmp(index_b);
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
+
+        let len = Self::get_fault_type_target_length(fault_type);
+        let n = records.len();
+        let mut instr_prob = HashMap::new();
+
+
+        for (i, t) in records.clone().into_iter().enumerate() {
+            let p = if i + len <= n && i+len <= n {
+                Self::get_prob(&records[i..=i+len-1], &prob_table, mean, &cs)
+            } else {
+                Self::get_prob(&records[i..=n-1], &prob_table, mean, &cs)
+            };
+        
+            if let TraceRecord::Instruction { index, .. } = t {
+                *instr_prob.entry(index).or_insert(0.0) += p;
+            }
+        }; 
+        
+        let size = (f64::powf(x, 1.0 / k as f64) * (n as f64)).ceil() as usize;
+
+        records.sort_by(|a, b| {
+            if let TraceRecord::Instruction { index: index_a, .. } = a {
+                if let TraceRecord::Instruction { index: index_b, .. } = b {
+                    let p_a = instr_prob.get(index_a).unwrap_or(&mean);
+                    let p_b = instr_prob.get(index_b).unwrap_or(&mean);
+                    return p_b.partial_cmp(p_a).unwrap_or(std::cmp::Ordering::Equal)
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
+
+        return records[..size].to_vec();
+    }
+
+    fn filter_3(records: &mut Vec<TraceRecord>, fault_type: FaultType, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
+        let cs = Disassembly::new();
+
+        records.sort_by(|a, b| {
+            if let TraceRecord::Instruction { index: index_a, .. } = a {
+                if let TraceRecord::Instruction { index: index_b, .. } = b {
+                    return index_a.cmp(index_b);
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
+
+        let len = Self::get_fault_type_target_length(fault_type);
+        let n = records.len();
+        let mut instr_prob = HashMap::new();
+
+
+        for (i, t) in records.clone().into_iter().enumerate() {
+            let p = if i + len <= n && i+len <= n {
+                Self::get_prob(&records[i..=i+len-1], &prob_table, mean, &cs)
+            } else {
+                Self::get_prob(&records[i..=n-1], &prob_table, mean, &cs)
+            };
+        
+            if let TraceRecord::Instruction { index, .. } = t {
+                *instr_prob.entry(index).or_insert(0.0) += p;
+            }
+        };
+
+        let e_x: f64 = instr_prob.iter().map(|(_, &p)| {
+            p
+        }).sum();
+
+        let t = (x.powf(1.0 / k as f64) * (n as f64)) / e_x;
+
+        instr_prob.iter_mut().for_each(|(_, p)| *p *= t);
+
+        let mut i_1 = HashMap::new();
+        let mut i_0 = HashMap::new();
+
+        instr_prob.iter().for_each(|(index, p)| {
+            if *p > 1.0 {
+                i_1.insert(*index, *p);
+            } else {
+                i_0.insert(*index, *p);
+            }
+        });
+
+        while !i_1.is_empty() {
+            let o_i: f64 = i_1.iter().map(|(_, p)| *p - 1.0).sum();
+
+            i_1.iter().for_each(|(index, _)| {
+                instr_prob.insert(*index, 1.0);
+            });
+
+            let total_i_0: f64 = i_0.len() as f64;
+
+            for (index, _) in &i_0 {
+                let p = instr_prob.get_mut(index).unwrap();
+                *p += o_i / total_i_0;
+            }
+
+            let mut new_i_1 = HashMap::new();
+            let mut new_i_0 = HashMap::new();
+
+            instr_prob.iter().for_each(|(index, p)| {
+                if *p > 1.0 {
+                    new_i_1.insert(*index, *p);
+                } else {
+                    new_i_0.insert(*index, *p);
+                }
+            });
+
+            i_1 = new_i_1;
+            i_0 = new_i_0;
+        }
+        
+        let mut rng = rand::thread_rng();
+        let filtered_records: Vec<TraceRecord> = records.clone().into_iter().filter(|record| {
+            if let TraceRecord::Instruction { index, .. } = record {
+                let p = instr_prob.get(index).unwrap_or(&mean);
+                rng.gen::<f64>() < *p
+            } else {
+                false
+            }
+        }).collect();
+        
+        filtered_records
+    }
+
+    fn get_prob(record_slice: &[TraceRecord], prob_table: &HashMap<String, f64>, mean: f64, cs: &Disassembly) -> f64 {
+        let len = record_slice.len();
+        let mut p = 0.0;
+        for t in record_slice {
+            p += prob_table.get(&cs.get_instr(t)).unwrap_or(&mean);
+        }
+
+        p / len as f64
+    }
+
+    fn get_fault_type_target_length(fault_type: FaultType) -> usize {
+        let len = match fault_type {
+            FaultType::BitFlip(_) => 1,
+            FaultType::Glitch(i) => i,
+        };
+        
+        len
     }
 
     fn filter_1(records: &mut Vec<TraceRecord>, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
@@ -653,26 +813,28 @@ impl FaultAttacks {
     
     fn create_prob_table() -> (HashMap<String, f64>, f64) {
         let mut prob_table = HashMap::new();
+        
+        // rand information
+        // prob_table.insert("str".to_string(), 0.1854438753);
+        // prob_table.insert("cmp".to_string(), 0.1100733313);
+        // prob_table.insert("movs".to_string(), 0.1011643316);
+        // prob_table.insert("bl".to_string(), 0.0598723233);
+        // prob_table.insert("stm.w".to_string(), 0.0443798699);
+        // prob_table.insert("eors".to_string(), 0.0320096548);
+        // prob_table.insert("ldm.w".to_string(), 0.0263169996);
+        // prob_table.insert("beq".to_string(), 0.0256368595);
+        // prob_table.insert("push".to_string(), 0.0231749831);
+        // prob_table.insert("ldr".to_string(), 0.0223633058);
+        // prob_table.insert("add".to_string(), 0.0208245959);
+        // prob_table.insert("mov".to_string(), 0.0202913189);
+        // prob_table.insert("add.w".to_string(), 0.0170354286);
+        // prob_table.insert("pop".to_string(), 0.0134370593);
+        // prob_table.insert("stm".to_string(), 0.0076166998);
+        // prob_table.insert("bx".to_string(), 0.0038657346);
+        // prob_table.insert("strd".to_string(), 0.0000049077);
+        // prob_table.insert("sub".to_string(), 0.0);
 
-        prob_table.insert("str".to_string(), 0.8185823543);
-        prob_table.insert("cmp".to_string(), 0.4876647557);
-        prob_table.insert("movs".to_string(), 0.4396788568);
-        prob_table.insert("bl".to_string(), 0.2639400649);
-        prob_table.insert("stm.w".to_string(), 0.1948807069);
-        prob_table.insert("eors".to_string(), 0.1441131428);
-        prob_table.insert("ldm.w".to_string(), 0.1202486834);
-        prob_table.insert("beq".to_string(), 0.1140286320);
-        prob_table.insert("push".to_string(), 0.1012555396);
-        prob_table.insert("ldr".to_string(), 0.0967017150);
-        prob_table.insert("add".to_string(), 0.0896197561);
-        prob_table.insert("mov".to_string(), 0.0861948956);
-        prob_table.insert("add.w".to_string(), 0.0725542911);
-        prob_table.insert("pop".to_string(), 0.0594311249);
-        prob_table.insert("stm".to_string(), 0.0306264501);
-        prob_table.insert("bx".to_string(), 0.0166666667);
-        prob_table.insert("strd".to_string(), 0.0000000000);
-        prob_table.insert("sub".to_string(), 0.0000000000);
-
+        // data over training data
         // prob_table.insert("b".to_string(), 58.398 / 100.0);
         // prob_table.insert("adds".to_string(), 29.618 / 100.0);
         // prob_table.insert("movs".to_string(), 26.906 / 100.0);
@@ -699,10 +861,32 @@ impl FaultAttacks {
         // prob_table.insert("strd".to_string(), 0.0);
         // prob_table.insert("sub".to_string(), 0.0);
 
-            // for prob in prob_table.values_mut() {
-            //     *prob = 0.1;
-            // }
-
+        prob_table.insert("b".to_string(), 0.583982684);
+        prob_table.insert("adds".to_string(), 0.2961760462);
+        prob_table.insert("bne".to_string(), 0.2309334845);
+        prob_table.insert("movs".to_string(), 0.1851127895);
+        prob_table.insert("str".to_string(), 0.1467659492);
+        prob_table.insert("cmp".to_string(), 0.1426659083);
+        prob_table.insert("pop".to_string(), 0.0912608727);
+        prob_table.insert("bl".to_string(), 0.0857283377);
+        prob_table.insert("cbz".to_string(), 0.0588383838);
+        prob_table.insert("ldr".to_string(), 0.0469643606);
+        prob_table.insert("stm.w".to_string(), 0.0453165582);
+        prob_table.insert("beq".to_string(), 0.0428022583);
+        prob_table.insert("add".to_string(), 0.034425472);
+        prob_table.insert("mov".to_string(), 0.0334113267);
+        prob_table.insert("ldm.w".to_string(), 0.0302641663);
+        prob_table.insert("eors".to_string(), 0.0266747123);
+        prob_table.insert("ldrb".to_string(), 0.0263158799);
+        prob_table.insert("add.w".to_string(), 0.0141961905);
+        prob_table.insert("push".to_string(), 0.0108346941);
+        prob_table.insert("stm".to_string(), 0.0063472498);
+        prob_table.insert("bx".to_string(), 0.0015462938);
+        prob_table.insert("strd".to_string(), 0.0000040898);
+        prob_table.insert("sub".to_string(), 0.0);
+        prob_table.insert("blo".to_string(), 0.0);
+        prob_table.insert("mov.w".to_string(), 0.0);
+        
         let mut prob = 0.0;
         let mut count = 0.0;
         for (_, p) in prob_table.clone() {
