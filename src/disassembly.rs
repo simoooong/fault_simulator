@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::hash::Hash;
 use crate::prelude::FaultType;
 use crate::simulation::{FaultData, TraceRecord};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
@@ -138,48 +139,73 @@ impl Disassembly {
         }
     }
 
-    pub fn write_instruction_information(
+    pub fn update_instruction_count_trace(
         &self,
         trace_records: Vec<TraceRecord>,
+        instruction_rel: &mut HashMap<String, u128>,
+    ) {
+        trace_records
+        .iter()
+        .for_each(|trace_record| match trace_record {
+            TraceRecord::Instruction {
+                address,
+                index: _,
+                asm_instruction,
+                registers: _,
+            } => {
+                let insns_data = self
+                    .cs
+                    .disasm_all(asm_instruction, *address)
+                    .expect("Failed to disassemble");
+
+                    for ins in insns_data.iter() {
+                        let mnemonic = ins.mnemonic().unwrap_or_default().to_string();
+                        let count = instruction_rel.entry(mnemonic.clone()).or_insert(0);
+                        *count += 1;
+                    }
+            }
+            _ => ()
+        })
+    }
+
+    pub fn update_instruction_count_fault(
+        &self,
+        trace_records: Vec<Vec<FaultData>>,
+        instruction_rel: &mut HashMap<String, u128>,
+    ) {
+        trace_records
+            .iter()
+            .for_each(|fault_context| {
+                fault_context.iter().for_each(|fault_data| {
+                    let insns_data = self
+                    .cs
+                    .disasm_all(&fault_data.original_instructions, fault_data.record.address())
+                    .expect("Failed to disassemble");
+
+                    for ins in insns_data.iter() {
+                        let mnemonic = ins.mnemonic().unwrap_or_default().to_string();
+                        let count = instruction_rel.entry(mnemonic).or_insert(0);
+                        *count += 1;
+                    }
+                });
+            });
+    }
+
+    pub fn write_instruction_information(
+        &self,
+        instruction_count: HashMap<String, u128>,
         instruction_rel: HashMap<String, f64>,
         len: usize,
         writer: &mut Writer<File>,
     ) -> Result<(), Box<dyn Error>> {
-        let mut mnemonic_counts: HashMap<String, usize> = HashMap::new();
-
-        trace_records
-                .iter()
-                .for_each(|trace_record| match trace_record {
-                    TraceRecord::Instruction {
-                        address,
-                        index: _,
-                        asm_instruction,
-                        registers: _,
-                    } => {
-                        let insns_data = self
-                            .cs
-                            .disasm_all(asm_instruction, *address)
-                            .expect("Failed to disassemble");
-
-                            for ins in insns_data.iter() {
-                                let mnemonic = ins.mnemonic().unwrap_or_default().to_string();
-                                let count = mnemonic_counts.entry(mnemonic.clone()).or_insert(0);
-                                *count += 1;
-                            }
-                    }
-                    _ => ()
-                });
-        
-        let instructions_with_counts: Vec<(&String, &usize)> = mnemonic_counts.iter().collect();
-        
         let mut writing = Vec::new();
-        for (instr,count) in instructions_with_counts {
+        for (instr,count) in instruction_count {
 
-            let rel = match instruction_rel.get(instr) {
+            let rel = match instruction_rel.get(&instr) {
                 Some(&value) => value,
                 _ => 0.0
             };
-            let rel_distribution = rel / ((len as f64) * (*count as f64));
+            let rel_distribution =  rel / count as f64;
 
             writing.push((instr, count, rel_distribution));
 
@@ -189,7 +215,7 @@ impl Disassembly {
         writing.reverse();
 
         for (instr, count, rel) in writing {
-            let rel_distribution = format!("{:.1$}", rel , 10);
+            let rel_distribution = format!("{:.1$}", rel , 15);
 
             writer.write_record(&[
                 instr.to_string(),
