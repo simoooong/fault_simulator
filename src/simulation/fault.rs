@@ -20,11 +20,10 @@ pub enum FlagsCPSR {
     N = 31,
     /// Zero condition code flag
     Z = 30,
-    /// Greater than or Equal flags
-    GE3 = 19,
-    GE2 = 18,
-    GE1 = 17,
-    GE0 = 16,
+    /// ALU operation Carry out
+    C = 29,
+    /// ALU operation oVerflowed
+    V = 28
 }
 
 impl ValueEnum for FaultType {
@@ -38,10 +37,8 @@ impl ValueEnum for FaultType {
             
             FaultType::BitFlip(FlagsCPSR::N),
             FaultType::BitFlip(FlagsCPSR::Z),
-            FaultType::BitFlip(FlagsCPSR::GE3),
-            FaultType::BitFlip(FlagsCPSR::GE2),
-            FaultType::BitFlip(FlagsCPSR::GE1),
-            FaultType::BitFlip(FlagsCPSR::GE0),
+            FaultType::BitFlip(FlagsCPSR::C),
+            FaultType::BitFlip(FlagsCPSR::V)
         ]
     }
 

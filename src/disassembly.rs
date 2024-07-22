@@ -1,5 +1,4 @@
 use std::fs::File;
-use crate::prelude::FaultType;
 use crate::simulation::{FaultData, TraceRecord};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
@@ -138,48 +137,49 @@ impl Disassembly {
         }
     }
 
-    pub fn write_instruction_information(
+    pub fn update_instruction_count_trace(
         &self,
         trace_records: Vec<TraceRecord>,
+        instruction_rel: &mut HashMap<String, u128>,
+    ) {
+        trace_records
+        .iter()
+        .for_each(|trace_record| match trace_record {
+            TraceRecord::Instruction {
+                address,
+                index: _,
+                asm_instruction,
+                registers: _,
+            } => {
+                let insns_data = self
+                    .cs
+                    .disasm_all(asm_instruction, *address)
+                    .expect("Failed to disassemble");
+
+                    for ins in insns_data.iter() {
+                        let mnemonic = ins.mnemonic().unwrap_or_default().to_string();
+                        let count = instruction_rel.entry(mnemonic.clone()).or_insert(0);
+                        *count += 1;
+                    }
+            }
+            _ => ()
+        })
+    }
+
+    pub fn write_instruction_information(
+        &self,
+        instruction_count: HashMap<String, u128>,
         instruction_rel: HashMap<String, f64>,
-        len: usize,
         writer: &mut Writer<File>,
     ) -> Result<(), Box<dyn Error>> {
-        let mut mnemonic_counts: HashMap<String, usize> = HashMap::new();
-
-        trace_records
-                .iter()
-                .for_each(|trace_record| match trace_record {
-                    TraceRecord::Instruction {
-                        address,
-                        index: _,
-                        asm_instruction,
-                        registers: _,
-                    } => {
-                        let insns_data = self
-                            .cs
-                            .disasm_all(asm_instruction, *address)
-                            .expect("Failed to disassemble");
-
-                            for ins in insns_data.iter() {
-                                let mnemonic = ins.mnemonic().unwrap_or_default().to_string();
-                                let count = mnemonic_counts.entry(mnemonic.clone()).or_insert(0);
-                                *count += 1;
-                            }
-                    }
-                    _ => ()
-                });
-        
-        let instructions_with_counts: Vec<(&String, &usize)> = mnemonic_counts.iter().collect();
-        
         let mut writing = Vec::new();
-        for (instr,count) in instructions_with_counts {
+        for (instr,count) in instruction_count {
 
-            let rel = match instruction_rel.get(instr) {
+            let rel = match instruction_rel.get(&instr) {
                 Some(&value) => value,
                 _ => 0.0
             };
-            let rel_distribution = rel / ((len as f64) * (*count as f64));
+            let rel_distribution =  rel / count as f64;
 
             writing.push((instr, count, rel_distribution));
 
@@ -188,8 +188,17 @@ impl Disassembly {
         writing.sort_by(|a,b| a.2.partial_cmp(&b.2).unwrap());
         writing.reverse();
 
+        let mut total_count = 0;
+        for (_, count, _) in writing.clone() {
+            total_count += count;
+        }
+
+        for (instr, count, _) in writing.clone() {
+            println!("{instr}: {count} - rel: {}", count as f64 / total_count as f64);
+        }
+
         for (instr, count, rel) in writing {
-            let rel_distribution = format!("{:.1$}", rel , 10);
+            let rel_distribution = format!("{:.1$}", rel , 15);
 
             writer.write_record(&[
                 instr.to_string(),
@@ -272,12 +281,7 @@ impl Disassembly {
                     let targets = self.disassembly_write_fault_data(fault_data);
                     for (instruction, count) in targets {
                         *instruction_counts.entry(instruction.clone()).or_insert(0) += count;
-
-                        let instr_size = match fault_data.fault.fault_type {
-                            FaultType::Glitch(i) => i,
-                            FaultType::BitFlip(_) => 1,
-                        };
-                        *instruction_rel.entry(instruction.clone()).or_insert(0.0) += (count as f64) / (instr_size as f64);
+                        *instruction_rel.entry(instruction.clone()).or_insert(0.0) += count as f64;
                     }
                 });
             });

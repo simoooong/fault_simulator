@@ -8,6 +8,8 @@ use crate::simulation::*;
 use std::io::stdout;
 use std::io::{self, Write};
 use std::error::Error;
+use std::sync::Arc;
+use std::sync::Mutex;
 use addr2line::gimli;
 use csv::Writer;
 use rand::Rng;
@@ -58,14 +60,12 @@ impl FaultAttacks {
 
     pub fn write_attack_data(
         &self,
-        cycles: usize,
-        deep_analysis: bool,
         len: usize,
         total_executed: usize,
         data_analysis: Vec<(Vec<Vec<FaultData>>, usize)>,
+        instruction_count: HashMap<String, u128>
     ) -> Result<(), Box<dyn Error>>{
         let mut instruction_rel: HashMap<String, f64> = HashMap::new();
-
         print!("\nFile path for data (Return for no existing file): ");
         stdout().flush().unwrap();
         let mut buffer = String::new();
@@ -85,20 +85,12 @@ impl FaultAttacks {
                 let mut writer_2 = Writer::from_path(format!("{file_path}_rel.csv"))?;
                 writer_2.write_record(&["Instruction", "Targeted", "Relative"])?;
 
-                let trace_records = trace_run(
-                    &self.file_data,
-                    cycles,
-                    RunType::RecordTrace,
-                    deep_analysis,
-                    &[],
-                )?;
-
                 // Get probability per attack, since we execute len attacks
-                for p in instruction_rel.values_mut() {
-                    *p /= len as f64;
-                }                
+                // for p in instruction_rel.values_mut() {
+                //     *p /= len as f64;
+                // }                
                 
-                self.cs.write_instruction_information(trace_records,  instruction_rel, data_analysis.len(), &mut writer_2)?;
+                self.cs.write_instruction_information(instruction_count,  instruction_rel, &mut writer_2)?;
 
                 writer_2.flush()?;
 
@@ -159,14 +151,14 @@ impl FaultAttacks {
     ) -> Result<(bool, usize), String> {
         // Run cached single nop simulation
         for i in range {
-            self.fault_data = self.fault_simulation(
+            let (x,_) = self.fault_simulation(
                 cycles,
                 &[FaultType::Glitch(i)],
                 deep_analysis,
                 to_filter,
                 prograss_bar,
             )?;
-
+            self.fault_data = x;
             if !self.fault_data.is_empty() {
                 break;
             }
@@ -190,14 +182,14 @@ impl FaultAttacks {
         // Run cached double nop simulation
         let it = range.clone().cartesian_product(range);
         for t in it {
-            self.fault_data = self.fault_simulation(
+            let (x, _) = self.fault_simulation(
                 cycles,
                 &[FaultType::Glitch(t.0), FaultType::Glitch(t.1)],
                 deep_analysis,
                 to_filter,
                 prograss_bar,
             )?;
-
+            self.fault_data = x;
             if !self.fault_data.is_empty() {
                 break;
             }
@@ -217,9 +209,9 @@ impl FaultAttacks {
         prograss_bar: bool,
     ) -> Result<(bool, usize), String> {
         for flg in FlagsCPSR::iter() {
-            self.fault_data =
-                self.fault_simulation(cycles, &[FaultType::BitFlip(flg)], deep_analysis, to_filter, prograss_bar)?;
-
+            let (x,_) =
+                self.fault_simulation(cycles, &[FaultType::BitFlip(flg)], deep_analysis, to_filter,  prograss_bar)?;
+            self.fault_data = x;
             if !self.fault_data.is_empty() {
                 break;
             }
@@ -239,13 +231,14 @@ impl FaultAttacks {
         args_input: &[String],
         to_filter: FilterValue,
         prograss_bar: bool
-    ) -> Result<(bool, usize, Vec<(Vec<Vec<FaultData>>, usize)>), String> {
+    ) -> Result<(bool, usize, Vec<(Vec<Vec<FaultData>>, usize)>, HashMap<String, u128>), String> {
         let args_sim: Vec<FaultType> = Vec::new();
+        let mut instruction_count: HashMap<String, u128>  = HashMap::new();
         let mut data_analysis:Vec<(Vec<Vec<FaultData>>, usize)> = Vec::new();
 
-        self.fault_data = self.custom_faults_inner(cycles, low_complexity, args_input, args_sim, &mut data_analysis, to_filter, prograss_bar)?;
+        self.fault_data = self.custom_faults_inner(cycles, low_complexity, args_input, args_sim, &mut data_analysis, to_filter, &mut instruction_count, prograss_bar)?;
 
-        Ok((!data_analysis.is_empty(), self.count_sum, data_analysis))
+        Ok((!data_analysis.is_empty(), self.count_sum, data_analysis, instruction_count))
         // Ok((!self.fault_data.is_empty(), self.count_sum, data_analysis))
     }
 
@@ -257,16 +250,24 @@ impl FaultAttacks {
         args_sim: Vec<FaultType>,
         data_analysis: &mut Vec<(Vec<Vec<FaultData>>, usize)>,
         to_filter: FilterValue,
+        instruction_count: &mut HashMap<String, u128>,
         prograss_bar: bool,
     ) -> Result<Vec<Vec<FaultData>>, String> {
         if args_input.is_empty() {
-            self.fault_data =
+            let mut instruction_count_inner: HashMap<String,u128> = HashMap::new();
+
+            (self.fault_data, instruction_count_inner) =
                 self.fault_simulation(cycles, &args_sim, low_complexity, to_filter, prograss_bar)?;
 
+            for (key, value) in instruction_count_inner.iter() {
+                *instruction_count.entry(key.clone()).or_insert(0) += *value;
+            }
+            
             // only add successfull attacks to the analysis
             if !self.fault_data.is_empty() {
                 data_analysis.push((self.fault_data.clone(), self.failed));
             }
+
             return Ok(self.fault_data.clone());
         }
         
@@ -277,83 +278,83 @@ impl FaultAttacks {
                 for i in 1..11 {
                     let mut data = args_sim.clone();
                     data.push(FaultType::Glitch(i));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, instruction_count, prograss_bar)?;
                 }
                 for flg in FlagsCPSR::iter() {
                     let mut data = args_sim.clone();
                     data.push(FaultType::BitFlip(flg));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, instruction_count, prograss_bar)?;
                 }
             },
             "Glitch" => {
                 for i in 1..11 {
                     let mut data = args_sim.clone();
                     data.push(FaultType::Glitch(i));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, instruction_count, prograss_bar)?;
                 }
             },
             "Bitflip" => {
                 for flg in FlagsCPSR::iter() {
                     let mut data = args_sim.clone();
                     data.push(FaultType::BitFlip(flg));
-                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+                    self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, instruction_count, prograss_bar)?;
                 }
             },
-            "Glitch1" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(1));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "Glitch2" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(2));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "Glitch3" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(3));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "Glitch4" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(4));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "Glitch5" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(5));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "Glitch6" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(6));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "Glitch7" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(7));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "Glitch8" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(9));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "Glitch9" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(9));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "Glitch10" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::Glitch(10));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            },
-            "BitflipZ" => {
-                let mut data = args_sim.clone();
-                data.push(FaultType::BitFlip(FlagsCPSR::Z));
-                self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
-            }
+            // "Glitch1" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(1));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "Glitch2" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(2));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "Glitch3" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(3));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "Glitch4" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(4));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "Glitch5" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(5));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "Glitch6" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(6));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "Glitch7" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(7));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "Glitch8" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(9));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "Glitch9" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(9));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "Glitch10" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::Glitch(10));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // },
+            // "BitflipZ" => {
+            //     let mut data = args_sim.clone();
+            //     data.push(FaultType::BitFlip(FlagsCPSR::Z));
+            //     self.fault_data = self.custom_faults_inner(cycles, low_complexity, remaining_input, data, data_analysis, to_filter, prograss_bar)?;
+            // }
             _ => return Err("Invalid Fault Type".to_string()),
         }
 
@@ -367,15 +368,15 @@ impl FaultAttacks {
         deep_analysis: bool,
         to_filter: FilterValue,
         prograss_bar: bool,
-    ) -> Result<Vec<Vec<FaultData>>, String> {
+    ) -> Result<(Vec<Vec<FaultData>>, HashMap<String, u128>), String> {
         //
         println!("Running simulation for faults: {faults:?}");
 
         // Check if faults are empty
         if faults.is_empty() {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), HashMap::new()));
         }
-
+        let instruction_count: Arc<Mutex<HashMap<String, u128>>> = Arc::new(Mutex::new(HashMap::new()));
         // Run simulation to record normal fault program flow as a base for fault injection
         let all_records = trace_run(
             &self.file_data,
@@ -397,7 +398,7 @@ impl FaultAttacks {
 
         let (prob_table, mean) = Self::create_prob_table();
 
-        let records = Self::filter_trace(all_records, prob_table, mean, 1 + remaining_faults.len(), to_filter);
+        let records = Self::filter_trace(all_records.clone(), prob_table, mean, 1 + remaining_faults.len(), to_filter);
         
         // Run main fault simulation loop
         let temp_file_data = &self.file_data;
@@ -407,9 +408,7 @@ impl FaultAttacks {
                 if let Some(bar) = &bar {
                     bar.inc(1);
                 }
-                
-
-                let number;
+                let mut number = 0;
                 // Get index of the record
                 if let TraceRecord::Instruction { index, .. } = record {
                     // Create a simulation fault record list with the first fault in the list
@@ -419,7 +418,7 @@ impl FaultAttacks {
                     }];
 
                     // Call recursive fault simulation with first simulation fault record
-                    number = Self::fault_simulation_inner(
+                    let (n, instruction_count_inner) = Self::fault_simulation_inner(
                         temp_file_data,
                         cycles,
                         remaining_faults,
@@ -428,11 +427,34 @@ impl FaultAttacks {
                         to_filter,
                         s,
                     )?;
+
+                    number += n;
+
+                    let mut instruction_count_lock = instruction_count.lock().unwrap();
+
+                    let len = Self::get_fault_type_target_length(first_fault);
+                    for i in 0..len {
+                        let mut max = index + i;
+                        if max >= all_records.clone().len() {
+                            max = all_records.len() - 1;
+                        }
+                        let mut vec: Vec<TraceRecord> = Vec::new();
+
+                        if let Some(record) = all_records.get(max) {
+                            vec.push(record.clone());
+                            let cs = Disassembly::new();
+                            cs.update_instruction_count_trace(vec, &mut instruction_count_lock);
+                        }
+                    }
+
+                    for (key, value) in instruction_count_inner {
+                        *instruction_count_lock.entry(key).or_insert(0) += value;
+                    }
                     
                 } else {
                     return Err("No instruction record found".to_string());
                 }
-
+                
                 Ok(number)
             })
             .sum();
@@ -448,11 +470,12 @@ impl FaultAttacks {
 
         // Return collected successful attacks to caller
         let data: Vec<_> = receiver.iter().collect();
+
         println!("-> {} attacks executed, {} successful", n, data.len());
         if data.is_empty() {
-            Ok(Vec::new())
+            Ok((Vec::new(), instruction_count.lock().unwrap().clone()))
         } else {
-            Ok(data)
+            Ok((data, instruction_count.lock().unwrap().clone()))
         }
     }
 
@@ -464,8 +487,19 @@ impl FaultAttacks {
         deep_analysis: bool,
         to_filter: FilterValue,
         s: &mut Sender<Vec<FaultData>>,
-    ) -> Result<usize, String> {
+    ) -> Result<(usize, HashMap<String, u128>), String> {
         let mut n = 0;
+        let mut instruction_count: HashMap<String, u128> = HashMap::new();
+        let cs = Disassembly::new();
+        
+        // Collect trace records with simulation fault records to get new running length (time)
+        let all_records = trace_run(
+            file_data,
+            cycles,
+            RunType::RecordTrace,
+            deep_analysis,
+            simulation_fault_records,
+        )?;
 
         // Check if there are no remaining faults left
         if faults.is_empty() {
@@ -473,21 +507,12 @@ impl FaultAttacks {
             simulation_run(file_data, cycles, simulation_fault_records, s)?;
             n += 1;
         } else {
-            // Collect trace records with simulation fault records to get new running length (time)
-            let all_records = trace_run(
-                file_data,
-                cycles,
-                RunType::RecordTrace,
-                deep_analysis,
-                simulation_fault_records,
-            )?;
-            
             // Split faults into first and remaining faults
             let (&first_fault, remaining_faults) = faults.split_first().unwrap();
             
             let (prob_table, mean) = Self::create_prob_table();
 
-            let records = Self::filter_trace(all_records, prob_table, mean, simulation_fault_records.len() +  1 + remaining_faults.len(), to_filter);
+            let records = Self::filter_trace(all_records.clone(), prob_table, mean, simulation_fault_records.len() +  1 + remaining_faults.len(), to_filter);
 
             // Iterate over trace records
             for record in records {
@@ -502,8 +527,21 @@ impl FaultAttacks {
                         fault_type: first_fault,
                     });
 
+                    let len = Self::get_fault_type_target_length(first_fault);
+                    for i in 0..len {
+                        let mut max = index + i;
+                        if max >= all_records.clone().len() {
+                            max = all_records.len() - 1;
+                        }
+                        let mut vec: Vec<TraceRecord> = Vec::new();
+                        if let Some(record) = all_records.get(max) {
+                            vec.push(record.clone());
+                            cs.update_instruction_count_trace(vec.clone(), &mut instruction_count);
+                        }
+                    }
+
                     // Call recursive fault simulation with remaining faults
-                    n += Self::fault_simulation_inner(
+                    let (x, instruction_count_inner) = Self::fault_simulation_inner(
                         file_data,
                         cycles,
                         remaining_faults,
@@ -512,11 +550,16 @@ impl FaultAttacks {
                         to_filter,
                         s,
                     )?;
+
+                    n += x;
+
+                    for (key, value) in instruction_count_inner {
+                        *instruction_count.entry(key).or_insert(0) += value;
+                    }
                 }
             }
         }
-
-        Ok(n)
+        Ok((n, instruction_count))
     }
 
     fn filter_trace(records: Vec<TraceRecord>, prob_table: HashMap<String, f64>, mean: f64, k: usize, to_filter: FilterValue) -> Vec<TraceRecord> {
@@ -540,16 +583,10 @@ impl FaultAttacks {
 
         match to_filter.1 {
             1 => {
-                return Self::filter_1(&mut filtered_records, prob_table, mean, k, to_filter.0);
+                return Self::filter_1(&mut filtered_records, FaultType::Glitch(10), prob_table, mean, k, to_filter.0);
             },
             2 => {
-                return Self::filter_2(filtered_records, prob_table, mean , k,  to_filter.0);
-            }
-            3 => {
-                return Self::filter_3(&mut filtered_records, FaultType::Glitch(10), prob_table, mean, k, to_filter.0);
-            }
-            4 => {
-                return Self::filter_4(&mut filtered_records, FaultType::Glitch(10), prob_table, mean, k, to_filter.0);
+                return Self::filter_2(&mut filtered_records, FaultType::Glitch(10), prob_table, mean, k, to_filter.0);
             }
             _ => {
                 return Vec::new();
@@ -557,7 +594,7 @@ impl FaultAttacks {
         }
     }
 
-    fn filter_4(records: &mut Vec<TraceRecord>, fault_type: FaultType, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
+    fn filter_1(records: &mut Vec<TraceRecord>, fault_type: FaultType, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
         let cs = Disassembly::new();
         
         records.sort_by(|a, b| {
@@ -602,7 +639,7 @@ impl FaultAttacks {
         return records[..size].to_vec();
     }
 
-    fn filter_3(records: &mut Vec<TraceRecord>, fault_type: FaultType, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
+    fn filter_2(records: &mut Vec<TraceRecord>, fault_type: FaultType, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
         let cs = Disassembly::new();
 
         records.sort_by(|a, b| {
@@ -710,183 +747,46 @@ impl FaultAttacks {
         
         len
     }
-
-    fn filter_1(records: &mut Vec<TraceRecord>, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
-        let cs = Disassembly::new();
-        
-        
-        let n = records.len();
-        let size = (f64::powf(x, 1.0 / k as f64) * (n as f64)).ceil() as usize;
-
-        records.sort_by(|a, b| {
-            let prob_a = prob_table.get(&cs.get_instr(a)).unwrap_or(&mean);
-            let prob_b = prob_table.get(&cs.get_instr(b)).unwrap_or(&mean);
-            prob_b.partial_cmp(prob_a).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        
-        return records[..size].to_vec();
-    }
-
-    fn filter_2(records: Vec<TraceRecord>, prob_table: HashMap<String, f64>, mean: f64, k: usize, x: f64) -> Vec<TraceRecord> {
-        let cs = Disassembly::new();
-
-        // Calculate E(X_i)
-        let mut occurrence_map = HashMap::new();
-        for record in &records {
-            if let TraceRecord::Instruction { .. } = record {
-                let instr = cs.get_instr(record);
-                *occurrence_map.entry(instr).or_insert(0) += 1;
-            }
-        }
-
-        let e_x: f64 = occurrence_map.iter().map(|(instr, &count)| {
-            let prob = prob_table.get(instr).unwrap_or(&mean);
-            prob * count as f64
-        }).sum();
-
-        let n_i = records.len() as f64;
-        let t = (x.powf(1.0 / k as f64) * n_i) / e_x;
-
-        let mut adjusted_probs: HashMap<String, f64> = occurrence_map.iter().map(|(instr, _)| {
-            let prob = prob_table.get(instr).unwrap_or(&mean);
-            let adjusted_prob = t * prob;
-            (instr.clone(), adjusted_prob)
-        }).collect();
-
-        let mut i_1: HashMap<String, usize> = HashMap::new();
-        let mut i_0: HashMap<String, usize> = HashMap::new();
-
-        for (instr, &count) in &occurrence_map {
-            let adjusted_prob = adjusted_probs.get(instr).unwrap();
-            if *adjusted_prob > 1.0 {
-                i_1.insert(instr.clone(), count);
-            } else {
-                i_0.insert(instr.clone(), count);
-            }
-        }
-
-        while !i_1.is_empty() {
-            let o_i: f64 = i_1.iter().map(|(instr, &count)| {
-                (adjusted_probs[instr] - 1.0) * count as f64
-            }).sum();
-
-            i_1.iter().for_each(|(instr, _)| {
-                adjusted_probs.insert(instr.clone(), 1.0);
-            });
-
-            let total_i_0: f64 = i_0.iter().map(|(_, &count)| count as f64).sum();
-
-            for (instr, _) in &i_0 {
-                let adjusted_prob = adjusted_probs.get_mut(instr).unwrap();
-                *adjusted_prob += o_i / total_i_0;
-            }
-
-            let mut new_i_1 = HashMap::new();
-            let mut new_i_0 = HashMap::new();
-
-            for (instr, &count) in &i_0 {
-                let adjusted_prob = adjusted_probs.get(instr).unwrap();
-                if *adjusted_prob > 1.0 {
-                    new_i_1.insert(instr.clone(), count);
-                } else {
-                    new_i_0.insert(instr.clone(), count);
-                }
-            }
-
-            i_1 = new_i_1;
-            i_0 = new_i_0;
-        }
-
-        let mut rng = rand::thread_rng();
-        let filtered_records: Vec<TraceRecord> = records.into_iter().filter(|record| {
-            if let TraceRecord::Instruction { .. } = record {
-                let instr = cs.get_instr(record);
-                let prob = adjusted_probs.get(&instr).cloned().unwrap_or(0.0);
-                rng.gen::<f64>() < prob
-            } else {
-                false
-            }
-        }).collect();
-
-        filtered_records
-    }
     
     fn create_prob_table() -> (HashMap<String, f64>, f64) {
         let mut prob_table = HashMap::new();
-        
-        // rand information
-        // prob_table.insert("str".to_string(), 0.1854438753);
-        // prob_table.insert("cmp".to_string(), 0.1100733313);
-        // prob_table.insert("movs".to_string(), 0.1011643316);
-        // prob_table.insert("bl".to_string(), 0.0598723233);
-        // prob_table.insert("stm.w".to_string(), 0.0443798699);
-        // prob_table.insert("eors".to_string(), 0.0320096548);
-        // prob_table.insert("ldm.w".to_string(), 0.0263169996);
-        // prob_table.insert("beq".to_string(), 0.0256368595);
-        // prob_table.insert("push".to_string(), 0.0231749831);
-        // prob_table.insert("ldr".to_string(), 0.0223633058);
-        // prob_table.insert("add".to_string(), 0.0208245959);
-        // prob_table.insert("mov".to_string(), 0.0202913189);
-        // prob_table.insert("add.w".to_string(), 0.0170354286);
-        // prob_table.insert("pop".to_string(), 0.0134370593);
-        // prob_table.insert("stm".to_string(), 0.0076166998);
-        // prob_table.insert("bx".to_string(), 0.0038657346);
-        // prob_table.insert("strd".to_string(), 0.0000049077);
-        // prob_table.insert("sub".to_string(), 0.0);
 
-        // data over training data
-        // prob_table.insert("b".to_string(), 58.398 / 100.0);
-        // prob_table.insert("adds".to_string(), 29.618 / 100.0);
-        // prob_table.insert("movs".to_string(), 26.906 / 100.0);
-        // prob_table.insert("bne".to_string(), 23.093 / 100.0);
-        // prob_table.insert("pop".to_string(), 15.611 / 100.0);
-        // prob_table.insert("cmp".to_string(), 15.285 / 100.0);
-        // prob_table.insert("bl".to_string(), 10.821 / 100.0);
-        // prob_table.insert("str".to_string(), 10.809 / 100.0);
-        // prob_table.insert("ldr".to_string(), 9.309 / 100.0);
-        // prob_table.insert("beq".to_string(), 8.572 / 100.0);
-        // prob_table.insert("cbz".to_string(), 5.884 / 100.0);
-        // prob_table.insert("mov".to_string(), 5.215 / 100.0);
-        // prob_table.insert("ldm.w".to_string(), 5.0 / 100.0);
-        // prob_table.insert("stm.w".to_string(), 5.0 / 100.0);
-        // prob_table.insert("add".to_string(), 4.978 / 100.0);
-        // prob_table.insert("ldrb".to_string(), 2.632 / 100.0);
-        // prob_table.insert("push".to_string(), 0.202 / 100.0);
-        // prob_table.insert("bx".to_string(), 0.0);
-        // prob_table.insert("add.w".to_string(), 0.0);
-        // prob_table.insert("eors".to_string(), 0.0);
-        // prob_table.insert("blo".to_string(), 0.0);
-        // prob_table.insert("mov.w".to_string(), 0.0);
-        // prob_table.insert("stm".to_string(), 0.0);
-        // prob_table.insert("strd".to_string(), 0.0);
-        // prob_table.insert("sub".to_string(), 0.0);
-
-        prob_table.insert("b".to_string(), 0.583982684);
-        prob_table.insert("adds".to_string(), 0.2961760462);
-        prob_table.insert("bne".to_string(), 0.2309334845);
-        prob_table.insert("movs".to_string(), 0.1851127895);
-        prob_table.insert("str".to_string(), 0.1467659492);
-        prob_table.insert("cmp".to_string(), 0.1426659083);
-        prob_table.insert("pop".to_string(), 0.0912608727);
-        prob_table.insert("bl".to_string(), 0.0857283377);
-        prob_table.insert("cbz".to_string(), 0.0588383838);
-        prob_table.insert("ldr".to_string(), 0.0469643606);
-        prob_table.insert("stm.w".to_string(), 0.0453165582);
-        prob_table.insert("beq".to_string(), 0.0428022583);
-        prob_table.insert("add".to_string(), 0.034425472);
-        prob_table.insert("mov".to_string(), 0.0334113267);
-        prob_table.insert("ldm.w".to_string(), 0.0302641663);
-        prob_table.insert("eors".to_string(), 0.0266747123);
-        prob_table.insert("ldrb".to_string(), 0.0263158799);
-        prob_table.insert("add.w".to_string(), 0.0141961905);
-        prob_table.insert("push".to_string(), 0.0108346941);
-        prob_table.insert("stm".to_string(), 0.0063472498);
-        prob_table.insert("bx".to_string(), 0.0015462938);
-        prob_table.insert("strd".to_string(), 0.0000040898);
-        prob_table.insert("sub".to_string(), 0.0);
-        prob_table.insert("blo".to_string(), 0.0);
+        //Final Training Data
+        prob_table.insert("adds".to_string(), 0.2711864407);
+        prob_table.insert("cbz".to_string(), 0.0689655172);
+        prob_table.insert("bne".to_string(), 0.0309218203);
+        prob_table.insert("ldrb".to_string(), 0.0068007663);
+        prob_table.insert("pop".to_string(), 0.0044585441);
+        prob_table.insert("cmp".to_string(), 0.0040785735);
+        prob_table.insert("bl".to_string(), 0.0038651439);
+        prob_table.insert("movs".to_string(), 0.0027246146);
+        prob_table.insert("add".to_string(), 0.0015364325);
+        prob_table.insert("mov".to_string(), 0.0014988182);
+        prob_table.insert("ldr".to_string(), 0.0010650833);
+        prob_table.insert("beq".to_string(), 0.000464846);
+        prob_table.insert("b".to_string(), 0.000330265);
+        prob_table.insert("str".to_string(), 0.0002967032);
+        prob_table.insert("push".to_string(), 0.0001935859);
+        prob_table.insert("ldm.w".to_string(), 3.68378e-05);
+        prob_table.insert("stm.w".to_string(), 3.54673e-05);
+        prob_table.insert("bx".to_string(), 0.0);
+        prob_table.insert("add.w".to_string(), 0.0);
+        prob_table.insert("eors".to_string(), 0.0);
+        prob_table.insert("strd".to_string(), 0.0);
         prob_table.insert("mov.w".to_string(), 0.0);
-        
+        prob_table.insert("it".to_string(), 0.0);
+        prob_table.insert("strb".to_string(), 0.0);
+        prob_table.insert("stm".to_string(), 0.0);
+        prob_table.insert("lsrs".to_string(), 0.0);
+        prob_table.insert("and".to_string(), 0.0);
+        prob_table.insert("sub".to_string(), 0.0);
+        prob_table.insert("nop".to_string(), 0.0);
+        prob_table.insert("subs".to_string(), 0.0);
+        prob_table.insert("blo".to_string(), 0.0);
+        prob_table.insert("uxth".to_string(), 0.0);
+        prob_table.insert("asrs".to_string(), 0.0);
+        prob_table.insert("b.w".to_string(), 0.0);
+
         let mut prob = 0.0;
         let mut count = 0.0;
         for (_, p) in prob_table.clone() {
