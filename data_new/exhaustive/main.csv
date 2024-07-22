@@ -1,0 +1,12 @@
+Attack Vectors,Successful Attacks,Executed Attacks,Success Rate (%),Targeted Instructions
+Glitch(1),43,159,27.044,"bne: 22,cmp: 20,ldr: 1"
+Glitch(2),45,159,28.302,"bne: 43,cmp: 43,b: 1,str: 1,adds: 1,ldr: 1"
+Glitch(3),26,159,16.352,"bne: 43,cmp: 23,ldr: 3,adds: 2,str: 2,b: 2,movs: 1,mov: 1,bl: 1"
+Glitch(4),26,159,16.352,"cmp: 42,bne: 42,ldr: 6,b: 3,str: 3,mov: 2,movs: 2,adds: 2,add: 1,bl: 1"
+Glitch(5),27,159,16.981,"bne: 42,cmp: 42,ldrb: 21,ldr: 9,str: 4,b: 4,add: 3,mov: 3,movs: 3,bl: 2,adds: 2"
+Glitch(6),28,159,17.610,"bne: 42,cmp: 42,ldrb: 42,ldr: 13,add: 5,str: 5,b: 5,movs: 4,bl: 4,mov: 4,adds: 2"
+Glitch(7),8,159,5.031,"ldr: 16,b: 6,add: 6,bl: 6,str: 5,movs: 5,mov: 4,adds: 2,bne: 2,cmp: 2,ldrb: 2"
+Glitch(8),8,159,5.031,"ldr: 18,add: 9,bl: 8,b: 6,str: 5,movs: 5,mov: 4,adds: 2,bne: 2,cmp: 2,ldrb: 2,cbz: 1"
+Glitch(9),8,159,5.031,"ldr: 19,add: 12,bl: 10,b: 6,str: 5,movs: 5,mov: 4,bne: 2,adds: 2,cbz: 2,ldrb: 2,cmp: 2,push: 1"
+Glitch(10),7,159,4.403,"ldr: 17,add: 11,bl: 10,b: 6,str: 5,movs: 5,mov: 4,cbz: 3,cmp: 2,push: 2,ldrb: 2,bne: 2,adds: 1"
+BitFlip(Z),22,159,13.836,bne: 22

@@ -54,7 +54,7 @@ Program parameters:
 -a, --analysis           Activate trace analysis of picked fault
 -d, --deep-analysis      Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
     --data <Faults>      Switch on data collection. Scans code against all possible attack vetors
--f, --filter             Switch on filter for instruction for search space pruning
+-f, --filter             Switch on filter for search space pruning
 -m, --max_instructions   Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
 -e, --elf <FILE>         Run attack simulation from external elf file w/o compilation step
 -h, --help               Print help

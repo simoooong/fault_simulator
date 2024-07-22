@@ -99,10 +99,10 @@ fn main() -> Result<(), String> {
         let mut faults = Vec::new();
         loop {
             faults.push(args.data.clone());
-            
+
             let result = attack.custom_faults(args.max_instructions, args.deep_analysis, &faults, args.filter, true)?;
             if result.0 {
-                attack.write_attack_data(args.max_instructions, args.deep_analysis, faults.len(), attack.count_sum, result.2, result.3).expect("Failed to write attack data");
+                attack.write_attack_data(faults.len(), attack.count_sum, result.2, result.3).expect("Failed to write attack data");
                 return Ok(())
             }
         }
